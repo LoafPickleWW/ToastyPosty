@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en" data-theme="butter">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>About Toasty Posty · Free, open-source social media scheduler</title>
+  <meta name="description" content="Toasty Posty is a free, open-source social media scheduler for X, Bluesky, Reddit, Instagram and TikTok, with AI captions, RSS and topic feeds, and no sign-up. Here's what it does and how your data is handled." />
+  <meta name="author" content="LoafPickle" />
+  <meta name="robots" content="index, follow, max-image-preview:large" />
+  <link rel="canonical" href="%SITE_URL%/about" />
+  <meta property="og:type" content="article" />
+  <meta property="og:site_name" content="Toasty Posty" />
+  <meta property="og:title" content="About Toasty Posty · Free social media scheduler" />
+  <meta property="og:description" content="Schedule posts to X, Bluesky, Reddit, Instagram and TikTok for free. Open source, no sign-up, keys stay in your browser." />
+  <meta property="og:url" content="%SITE_URL%/about" />
+  <meta property="og:image" content="%SITE_URL%/og.png" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:site" content="@loafpickle" />
+  <meta name="twitter:image" content="%SITE_URL%/og.png" />
+  <link rel="icon" href="/favicon.ico" sizes="any" />
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+  <link rel="manifest" href="/site.webmanifest" />
+  <meta name="theme-color" content="#F3ECDD" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..900&family=DM+Mono:wght@400;500&family=Yellowtail&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/css/toast.css" />
+  <link rel="stylesheet" href="/css/toaster.css" />
+  <style>
+    .about { max-width: 860px; margin: 0 auto; padding: 36px var(--gutter) 80px; }
+    .hero { display: grid; grid-template-columns: 160px minmax(0, 1fr); gap: 28px; align-items: center; margin-bottom: 36px; }
+    .hero img { width: 160px; height: 160px; }
+    .hero .tagline { font: 400 30px/1 var(--script); color: var(--jam); display: block; transform: rotate(-2deg); transform-origin: left; margin-bottom: 6px; }
+    .hero h1 { margin: 0 0 12px; font: 900 clamp(28px, 4vw, 42px)/1.05 var(--f); font-stretch: 125%; text-transform: uppercase; letter-spacing: -0.01em; }
+    .hero p { margin: 0 0 18px; font-size: 17px; color: var(--ink-2); }
+    .about h2 { font: 800 22px/1.2 var(--f); font-stretch: 115%; margin: 40px 0 12px; letter-spacing: -0.01em; }
+    .about p, .about li { font-size: 16px; line-height: 1.6; color: var(--ink-2); }
+    .about li { margin-bottom: 6px; }
+    .about strong { color: var(--ink); }
+    .about a:not(.btn) { color: var(--jam); font-weight: 600; }
+    .grid3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 14px; }
+    .grid3 .card { padding: 18px; }
+    .grid3 h3 { margin: 0 0 6px; font-size: 16px; font-stretch: 112%; }
+    .grid3 p { margin: 0; font-size: 14.5px; }
+    table { width: 100%; border-collapse: collapse; font-size: 15px; background: var(--surface); border-radius: 14px; overflow: hidden; border: 1px solid var(--line); }
+    th, td { text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--line); vertical-align: top; color: var(--ink-2); }
+    th { background: var(--surface-2); color: var(--ink); font-weight: 700; }
+    tr:last-child td { border-bottom: 0; }
+    details { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 14px 18px; margin-bottom: 10px; }
+    summary { cursor: pointer; font-weight: 700; color: var(--ink); font-size: 16px; }
+    details p { margin: 10px 0 0; }
+    .cta { display: flex; gap: 10px; flex-wrap: wrap; }
+    @media (max-width: 640px) { .hero { grid-template-columns: 1fr; } .hero img { width: 110px; height: 110px; } table { font-size: 13.5px; } th, td { padding: 8px 10px; } }
+  </style>
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    "mainEntity": [
+      { "@type": "Question", "name": "Is Toasty Posty free?", "acceptedAnswer": { "@type": "Answer", "text": "Yes. Toasty Posty is free and open source under the MIT license. You use your own developer keys for each network, and optional AI features use your own Claude or OpenAI key." } },
+      { "@type": "Question", "name": "Which social networks can Toasty Posty post to?", "acceptedAnswer": { "@type": "Answer", "text": "X (Twitter), Bluesky, Reddit, Instagram (professional accounts) and TikTok. Each network's limits apply: for example TikTok posts stay private until TikTok audits your developer app." } },
+      { "@type": "Question", "name": "Where are my API keys and posts stored?", "acceptedAnswer": { "@type": "Answer", "text": "In your own browser, on your own device. Toasty Posty has no accounts or database. When you post, your keys pass through Toasty Posty's stateless relay to reach the network and are not stored." } },
+      { "@type": "Question", "name": "How does scheduling work?", "acceptedAnswer": { "@type": "Answer", "text": "Scheduled posts go out from any open Toasty Posty tab, even in the background. Anything that came due while it was closed goes out the next time you open it." } },
+      { "@type": "Question", "name": "Can Toasty Posty write captions with AI?", "acceptedAnswer": { "@type": "Answer", "text": "Yes. Add a Claude (Anthropic) or OpenAI key to draft a version for each platform, rewrite posts and write image alt text. Image generation uses OpenAI. Without a key, the AI tools stay locked." } },
+      { "@type": "Question", "name": "Can I self-host Toasty Posty?", "acceptedAnswer": { "@type": "Answer", "text": "Yes. Run it on your own computer with Node.js (npm install, then npm start), or deploy your own copy to Vercel." } }
+    ]
+  }
+  </script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-in">
+      <a class="brand" href="/" aria-label="Open Toasty Posty">
+        <img src="/img/logo.svg" alt="" width="44" height="44" />
+        <span class="nameplate"><b>Toasty Posty</b><small>by LoafPickle</small></span>
+      </a>
+      <span style="margin-left:auto"></span>
+      <a class="btn primary sm" href="/">Open the app</a>
+    </div>
+  </header>
+
+  <main class="about">
+    <section class="hero">
+      <img src="/img/logo.svg" alt="Toasty Posty logo: a mint 1950s toaster with a buttered slice popping out" width="160" height="160" />
+      <div>
+        <span class="tagline">fresh out of the toaster</span>
+        <h1>Free social media scheduler</h1>
+        <p><strong>Toasty Posty</strong> is a free, open-source app for writing a post once and sending it to <strong>X, Bluesky, Reddit, Instagram and TikTok</strong>, now or on a schedule. There's no sign-up: your accounts and API keys stay in your own browser.</p>
+        <div class="cta"><a class="btn primary" href="/">Open Toasty Posty</a><a class="btn" href="https://github.com/LoafPickleWW" rel="noopener">Source on GitHub</a></div>
+      </div>
+    </section>
+
+    <h2>What it does</h2>
+    <div class="grid3">
+      <div class="card"><h3>Write once, preview everywhere</h3><p>See exactly how a post will look on each network, with live character counts. Write a different version for any platform.</p></div>
+      <div class="card"><h3>Schedule with a dial</h3><p>Pick a time on the browning dial and pull the lever. Drafts, a weekly view and failed-post retries live in the Queue.</p></div>
+      <div class="card"><h3>AI that sounds like you</h3><p>Optional Claude or OpenAI key: draft captions for each platform, rewrite, write alt text and generate images, in your own house voice.</p></div>
+      <div class="card"><h3>Feeds for ideas</h3><p>Track topics across Google News, Hacker News and Reddit, or follow RSS, Medium, Substack, YouTube and more for free. Hit “Toast” to post about anything.</p></div>
+      <div class="card"><h3>Your keys, your browser</h3><p>No database, no accounts. A stateless relay forwards each request to the network and keeps nothing. Back up or restore anytime.</p></div>
+      <div class="card"><h3>Open source</h3><p>MIT licensed. Run it on your own computer with Node.js or deploy your own copy to Vercel.</p></div>
+    </div>
+
+    <h2>Supported networks</h2>
+    <table>
+      <thead><tr><th>Network</th><th>What you can post</th><th>What you need</th></tr></thead>
+      <tbody>
+        <tr><td>Bluesky</td><td>Text with links and hashtags, up to 4 images with alt text</td><td>Your handle and an App Password</td></tr>
+        <tr><td>X (Twitter)</td><td>Text and up to 4 images</td><td>A developer app with read and write access</td></tr>
+        <tr><td>Reddit</td><td>Text, link and single-image posts to any subreddit</td><td>A personal “script” app</td></tr>
+        <tr><td>Instagram</td><td>Photos, carousels and Reels</td><td>A professional account and a Meta app token</td></tr>
+        <tr><td>TikTok</td><td>Videos and photo posts</td><td>A TikTok developer app (posts are private until TikTok audits it)</td></tr>
+      </tbody>
+    </table>
+    <p>Every network has a step-by-step guide for getting its keys inside the app, under <a href="/#/accounts">Accounts</a>.</p>
+
+    <h2>How your data is handled</h2>
+    <ul>
+      <li><strong>Stored in your browser.</strong> Accounts, keys, posts, feeds and media are saved in this browser's storage on your device. Another browser or device starts empty unless you restore a backup.</li>
+      <li><strong>Relayed, never kept.</strong> Networks don't accept posts straight from a web page, so each request passes through Toasty Posty's server, which forwards it and forgets it.</li>
+      <li><strong>No tracking.</strong> No analytics, no ads, no account.</li>
+      <li><strong>Scheduling needs an open tab.</strong> Scheduled posts go out while Toasty Posty is open somewhere (a background tab is fine). Missed ones go out the next time you open it.</li>
+    </ul>
+
+    <h2>Questions</h2>
+    <details><summary>Is Toasty Posty free?</summary><p>Yes, free and open source under the MIT license. You use your own developer keys for each network, and optional AI features use your own Claude or OpenAI key.</p></details>
+    <details><summary>Which social networks does it support?</summary><p>X (Twitter), Bluesky, Reddit, Instagram (professional accounts) and TikTok. Each network's rules apply; for example, TikTok keeps posts private until it audits your developer app.</p></details>
+    <details><summary>Where are my API keys stored?</summary><p>In your own browser. Toasty Posty has no database or accounts. Keys pass through the stateless relay only when a request needs them, and aren't saved there.</p></details>
+    <details><summary>How does scheduling work?</summary><p>Scheduled posts go out from any open Toasty Posty tab, even in the background. Anything that came due while it was closed goes out the next time you open it.</p></details>
+    <details><summary>Can it write captions with AI?</summary><p>Yes. With a Claude or OpenAI key it drafts a version per platform, rewrites posts and writes alt text. Image generation uses OpenAI. Without a key, those tools stay locked.</p></details>
+    <details><summary>Can I host my own copy?</summary><p>Yes. Run <code>npm install</code> then <code>npm start</code> on your computer, or deploy to Vercel. You can set an <code>ACCESS_CODE</code> so only you can use your deployment.</p></details>
+
+    <p style="margin-top:40px" class="muted">Made by <a href="https://loafpickle.com">LoafPickle</a>.</p>
+  </main>
+</body>
+</html>

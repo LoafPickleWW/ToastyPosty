@@ -1,0 +1,22 @@
+{
+  "name": "Toasty Posty",
+  "short_name": "Toasty Posty",
+  "description": "Free, open-source social media scheduler for X, Bluesky, Reddit, Instagram and TikTok.",
+  "start_url": "/#/compose",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#F3ECDD",
+  "theme_color": "#F3ECDD",
+  "categories": ["productivity", "social", "business"],
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
+    { "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml" }
+  ],
+  "shortcuts": [
+    { "name": "New post", "url": "/#/compose" },
+    { "name": "Queue", "url": "/#/queue" },
+    { "name": "Feeds", "url": "/#/feeds" }
+  ]
+}

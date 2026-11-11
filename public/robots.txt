@@ -1,0 +1,25 @@
+# Toasty Posty: everyone (search engines and AI answer engines) is welcome to read the public pages.
+User-agent: *
+Allow: /
+Disallow: /api/
+Disallow: /oauth-tiktok
+
+# AI crawlers, named explicitly so they can cite Toasty Posty (GEO)
+User-agent: GPTBot
+Allow: /
+User-agent: OAI-SearchBot
+Allow: /
+User-agent: ChatGPT-User
+Allow: /
+User-agent: ClaudeBot
+Allow: /
+User-agent: Claude-SearchBot
+Allow: /
+User-agent: PerplexityBot
+Allow: /
+User-agent: Google-Extended
+Allow: /
+User-agent: Applebot-Extended
+Allow: /
+
+Sitemap: %SITE_URL%/sitemap.xml

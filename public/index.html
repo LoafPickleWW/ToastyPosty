@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en" data-theme="butter">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Toasty Posty · Free social media scheduler for X, Bluesky, Reddit, Instagram &amp; TikTok</title>
+  <meta name="description" content="Toasty Posty is a free, open-source social media scheduler. Write once, preview and schedule posts to X, Bluesky, Reddit, Instagram and TikTok. Your keys stay in your browser." />
+  <meta name="application-name" content="Toasty Posty" />
+  <meta name="author" content="LoafPickle" />
+  <meta name="robots" content="index, follow, max-image-preview:large" />
+  <link rel="canonical" href="%SITE_URL%/" />
+
+  <!-- Social share cards -->
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="Toasty Posty" />
+  <meta property="og:title" content="Toasty Posty · Write once. Toast it everywhere." />
+  <meta property="og:description" content="A free, open-source social scheduler for X, Bluesky, Reddit, Instagram and TikTok, with AI captions and feeds. No sign-up; your keys stay in your browser." />
+  <meta property="og:url" content="%SITE_URL%/" />
+  <meta property="og:image" content="%SITE_URL%/og.png" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta property="og:image:alt" content="Toasty Posty: a mint toaster with a slice popping out, next to the words Write once. Toast it everywhere." />
+  <meta property="og:locale" content="en_US" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:site" content="@loafpickle" />
+  <meta name="twitter:creator" content="@loafpickle" />
+  <meta name="twitter:title" content="Toasty Posty · Write once. Toast it everywhere." />
+  <meta name="twitter:description" content="Free, open-source social scheduler for X, Bluesky, Reddit, Instagram and TikTok. Your keys stay in your browser." />
+  <meta name="twitter:image" content="%SITE_URL%/og.png" />
+  <meta name="twitter:image:alt" content="Toasty Posty: a mint toaster with a slice popping out." />
+
+  <!-- Icons + install -->
+  <link rel="icon" href="/favicon.ico" sizes="any" />
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+  <link rel="manifest" href="/site.webmanifest" />
+  <meta name="theme-color" content="#F3ECDD" media="(prefers-color-scheme: light)" />
+  <meta name="theme-color" content="#1A120D" media="(prefers-color-scheme: dark)" />
+  <meta name="apple-mobile-web-app-title" content="Toasty Posty" />
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..900&family=DM+Mono:wght@400;500&family=Yellowtail&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/css/toast.css" />
+  <link rel="stylesheet" href="/css/toaster.css" />
+
+  <!-- Structured data for search engines and AI answer engines -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "WebSite",
+        "@id": "%SITE_URL%/#website",
+        "url": "%SITE_URL%/",
+        "name": "Toasty Posty",
+        "description": "Free, open-source social media scheduler for X, Bluesky, Reddit, Instagram and TikTok.",
+        "publisher": { "@id": "https://loafpickle.com/#org" }
+      },
+      {
+        "@type": "SoftwareApplication",
+        "@id": "%SITE_URL%/#app",
+        "name": "Toasty Posty",
+        "url": "%SITE_URL%/",
+        "applicationCategory": "BusinessApplication",
+        "applicationSubCategory": "Social media scheduler",
+        "operatingSystem": "Web browser; Windows, macOS, Linux (self-hosted with Node.js)",
+        "isAccessibleForFree": true,
+        "license": "https://opensource.org/licenses/MIT",
+        "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+        "image": "%SITE_URL%/og.png",
+        "screenshot": "%SITE_URL%/og.png",
+        "description": "Write a post once, preview it for each network, and post now or schedule it to X, Bluesky, Reddit, Instagram and TikTok. Optional AI captions with Claude or OpenAI, RSS and topic feeds, and no sign-up: accounts and API keys are stored in your own browser.",
+        "featureList": [
+          "Schedule posts to X (Twitter), Bluesky, Reddit, Instagram and TikTok",
+          "Per-platform previews with character limits",
+          "AI caption drafts, rewrites and alt text with Claude or OpenAI",
+          "AI image generation with OpenAI",
+          "Free RSS, Google News, Hacker News, YouTube and Medium feeds with keyword tracking",
+          "Keys and posts stored locally in your browser; no account required",
+          "Open source (MIT); self-host with Node.js or deploy to Vercel"
+        ],
+        "author": { "@id": "https://loafpickle.com/#org" }
+      },
+      {
+        "@type": "Organization",
+        "@id": "https://loafpickle.com/#org",
+        "name": "LoafPickle",
+        "url": "https://loafpickle.com",
+        "sameAs": ["https://x.com/loafpickle", "https://github.com/LoafPickleWW", "https://medium.com/@loafpickle"]
+      }
+    ]
+  }
+  </script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-in">
+      <a class="brand" href="#/compose" aria-label="Toasty Posty home">
+        <img src="/img/logo.svg" alt="" width="44" height="44" />
+        <span class="nameplate"><b>Toasty Posty</b><small>by LoafPickle</small></span>
+      </a>
+      <nav class="tabs" id="tabs" aria-label="Main"></nav>
+      <div class="top-status" id="status"></div>
+    </div>
+  </header>
+
+  <main class="page" id="view" tabindex="-1">
+    <noscript>
+      <h1>Toasty Posty: free social media scheduler</h1>
+      <p>Toasty Posty runs in your browser and needs JavaScript. Write once and schedule posts to X, Bluesky, Reddit, Instagram and TikTok. <a href="/about">Read what it does</a>.</p>
+    </noscript>
+  </main>
+
+  <div class="pops" id="toaster" aria-live="polite"></div>
+  <script type="module" src="/js/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="robots" content="noindex" />
+  <title>Connecting TikTok · Toasty Posty</title>
+  <link rel="icon" href="/img/logo.svg" type="image/svg+xml" />
+  <style>
+    body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #F3ECDD; color: #24170F; font: 600 17px/1.5 system-ui, sans-serif; text-align: center; padding: 16px; }
+    img { width: 72px; height: 72px; margin: 0 auto 12px; display: block; }
+    @media (prefers-color-scheme: dark) { body { background: #1A120D; color: #F6ECDF; } }
+  </style>
+</head>
+<body>
+  <div><img src="/img/logo.svg" alt="" /><p id="msg">Toasting your TikTok login…</p></div>
+  <script>
+    // TikTok sends the user here with ?code&state. The state carries the address of the Toasty Posty
+    // that started the login (this site, or http://localhost when self-hosted), so we hand the code back to it.
+    // The code is useless without the Client Secret, which only lives in that browser.
+    (function () {
+      var q = new URLSearchParams(location.search);
+      var state = q.get('state') || '';
+      var origin = location.origin;
+      try {
+        var enc = state.split('.')[1];
+        if (enc) origin = atob(enc);
+      } catch (e) {}
+      var ok = origin === location.origin || /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin);
+      if (!ok) { document.getElementById('msg').textContent = 'That login link looks wrong. Start again from Toasty Posty.'; return; }
+      var hash = q.get('error')
+        ? '#/accounts?tiktok_error=' + encodeURIComponent(q.get('error_description') || q.get('error'))
+        : '#/accounts?tiktok_code=' + encodeURIComponent(q.get('code') || '') + '&tiktok_state=' + encodeURIComponent(state);
+      location.replace(origin + '/' + hash);
+    })();
+  </script>
+</body>
+</html>

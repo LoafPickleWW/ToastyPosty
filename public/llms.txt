@@ -1,0 +1,23 @@
+# Toasty Posty
+
+> Toasty Posty is a free, open-source (MIT) social media scheduler by LoafPickle. Write a post once, preview it for each network, and post now or schedule it to X (Twitter), Bluesky, Reddit, Instagram and TikTok. There is no sign-up: accounts, API keys, posts and media are stored in the user's own browser, and a stateless relay forwards requests to each network without storing anything.
+
+Key facts:
+
+- Price: free. Users bring their own developer keys for each network, and optionally a Claude (Anthropic) or OpenAI key for AI features.
+- Networks: X/Twitter (text + up to 4 images), Bluesky (text, links, hashtags, up to 4 images with alt text), Reddit (text, link, single image), Instagram (photos, carousels, Reels; professional accounts), TikTok (videos and photo posts; private until TikTok audits the developer app).
+- AI: caption drafts per platform, rewrites, and image alt text with Claude or OpenAI; image generation with OpenAI. These tools stay locked until a key is added.
+- Feeds: free RSS/Atom, Google News, Hacker News, Reddit, Medium, Substack, YouTube, Bluesky, Mastodon and GitHub feeds, plus keyword topic tracking. A "Toast" button turns any item into a draft post.
+- Scheduling: posts go out from any open Toasty Posty browser tab (background is fine); posts that came due while it was closed go out on next open.
+- Privacy: no accounts, no database, no analytics. Users can download a backup file and restore it in another browser.
+- Self-hosting: Node.js (`npm install`, `npm start`) or deploy to Vercel; optional ACCESS_CODE locks a deployment.
+
+## Pages
+
+- [App](%SITE_URL%/): the Toasty Posty web app
+- [About](%SITE_URL%/about): features, supported networks, data handling and FAQ
+
+## Links
+
+- [LoafPickle](https://loafpickle.com): the studio that makes Toasty Posty
+- [Source code](https://github.com/LoafPickleWW)
