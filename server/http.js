@@ -30,6 +30,8 @@ function extractError(b) {
   return (
     b.error?.message ||
     b.error_description ||
+    // AT Protocol style: { error: "SomeCode", message: "Readable text" } — prefer the readable text.
+    (typeof b.error === 'string' && typeof b.message === 'string' && b.message ? b.message : '') ||
     (typeof b.error === 'string' ? b.error : '') ||
     b.message ||
     b.detail ||

@@ -5,12 +5,34 @@ const sessions = new Map(); // accountId -> { accessJwt, refreshJwt, did, at }
 
 const svc = (c) => (c.service || 'https://bsky.social').replace(/\/$/, '');
 
+// Accept what people actually paste: "@you", "you", a bsky.app profile link, stray spaces.
+function cleanIdentifier(raw = '') {
+  let id = String(raw).trim().replace(/^https?:\/\/(www\.)?bsky\.app\/profile\//i, '').replace(/\/.*$/, '').replace(/^@/, '').trim();
+  if (id && !id.includes('@') && !id.includes('.') && !id.startsWith('did:')) id += '.bsky.social';
+  return id.toLowerCase();
+}
+
 async function createSession(c) {
-  return request(`${svc(c)}/xrpc/com.atproto.server.createSession`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ identifier: c.identifier.replace(/^@/, ''), password: c.appPassword }),
-  }, 'Bluesky login');
+  const identifier = cleanIdentifier(c.identifier);
+  const password = String(c.appPassword || '').trim();
+  if (!identifier || !password) throw Object.assign(new Error('Bluesky login: enter both your handle and an App Password.'), { status: 400 });
+  try {
+    return await request(`${svc(c)}/xrpc/com.atproto.server.createSession`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ identifier, password }),
+    }, 'Bluesky login');
+  } catch (e) {
+    const code = e.body?.error;
+    if (code === 'AuthenticationRequired') {
+      e.message = `Bluesky login failed for "${identifier}": handle or App Password is wrong. Use your full handle (e.g. you.bsky.social) and an App Password from bsky.app → Settings → Privacy and security → App passwords — not your normal password.`;
+    } else if (code === 'AuthFactorTokenRequired') {
+      e.message = 'Bluesky asked for an email sign-in code, which means your normal password was used. Create an App Password (xxxx-xxxx-xxxx-xxxx) and paste that instead.';
+    } else if (code === 'AccountTakedown' || code === 'AccountDeactivated') {
+      e.message = `Bluesky login: this account is ${code === 'AccountTakedown' ? 'suspended' : 'deactivated'}.`;
+    }
+    throw e;
+  }
 }
 
 async function session(account) {
