@@ -98,6 +98,10 @@ export default {
     const allowed = info.privacy_level_options || ['SELF_ONLY'];
     const privacy = allowed.includes(options.privacy) ? options.privacy : allowed.includes('SELF_ONLY') ? 'SELF_ONLY' : allowed[0];
     const video = media.find((m) => m.mime.startsWith('video/'));
+    // Commercial content disclosure (TikTok requires apps to offer it). Branded content can't be private.
+    const brand = { brand_organic_toggle: !!(options.disclose && options.yourBrand), brand_content_toggle: !!(options.disclose && options.brandedContent) };
+    if (options.disclose && !brand.brand_organic_toggle && !brand.brand_content_toggle) throw new Error('You turned on the TikTok content disclosure but didn’t pick “Your brand” or “Branded content”.');
+    if (brand.brand_content_toggle && privacy === 'SELF_ONLY') throw new Error('TikTok doesn’t allow branded content to be posted as “Only me”. Pick a wider audience (your app needs TikTok’s audit for that).');
 
     if (video) {
       const size = video.size;
@@ -111,8 +115,7 @@ export default {
           disable_comment: !!options.disableComment,
           disable_duet: !!options.disableDuet,
           disable_stitch: !!options.disableStitch,
-          brand_content_toggle: false,
-          brand_organic_toggle: false,
+          ...brand,
         },
         source_info: { source: 'FILE_UPLOAD', video_size: size, chunk_size: chunk, total_chunk_count: count },
       });
@@ -134,7 +137,7 @@ export default {
     if (media.some((m) => m.mime.startsWith('image/') && !m.publicUrl)) throw new Error('TikTok photo posts need your images at a public address on a domain verified in your TikTok app. Videos work without it.');
     const photos = media.filter((m) => m.mime.startsWith('image/')).slice(0, 35);
     const init = await tt(account, '/v2/post/publish/content/init/', {
-      post_info: { title: (options.title || text).slice(0, 90), description: text.slice(0, 4000), privacy_level: privacy, disable_comment: !!options.disableComment, auto_add_music: true },
+      post_info: { title: (options.title || text).slice(0, 90), description: text.slice(0, 4000), privacy_level: privacy, disable_comment: !!options.disableComment, auto_add_music: true, ...brand },
       source_info: { source: 'PULL_FROM_URL', photo_cover_index: 0, photo_images: photos.map((m) => m.publicUrl) },
       post_mode: 'DIRECT_POST',
       media_type: 'PHOTO',

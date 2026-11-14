@@ -4,12 +4,17 @@ let dbp;
 
 function open() {
   dbp ||= new Promise((resolve, reject) => {
-    const req = indexedDB.open(NAME, 1);
+    const req = indexedDB.open(NAME, 2);
     req.onupgradeneeded = () => {
-      req.result.createObjectStore('kv');
-      req.result.createObjectStore('media');
+      const have = req.result.objectStoreNames;
+      if (!have.contains('kv')) req.result.createObjectStore('kv');
+      if (!have.contains('media')) req.result.createObjectStore('media');
+      if (!have.contains('studio')) req.result.createObjectStore('studio'); // Video Studio photos + song
     };
-    req.onsuccess = () => resolve(req.result);
+    req.onsuccess = () => {
+      req.result.onversionchange = () => { req.result.close(); dbp = null; }; // let a newer tab upgrade
+      resolve(req.result);
+    };
     req.onerror = () => reject(req.error || new Error('This browser blocked local storage. Private windows sometimes do.'));
   });
   return dbp;
@@ -34,6 +39,13 @@ export const set = (key, value) => write('kv', (s) => s.put(value, key));
 export const getMedia = async (id) => req((await open()).transaction('media').objectStore('media').get(id));
 export const putMedia = (id, blob) => write('media', (s) => s.put(blob, id));
 export const delMedia = (id) => write('media', (s) => s.delete(id));
+// Video Studio's working files, kept apart from post media.
+export const getStudioFile = async (id) => req((await open()).transaction('studio').objectStore('studio').get(id));
+export const putStudioFile = (id, blob) => write('studio', (s) => s.put(blob, id));
+export const delStudioFile = (id) => write('studio', (s) => s.delete(id));
+export const clearStudio = () => write('studio', (s) => s.clear());
+export const studioKeys = async () => req((await open()).transaction('studio').objectStore('studio').getAllKeys());
+
 export async function allMedia() {
   const s = (await open()).transaction('media').objectStore('media');
   const [keys, vals] = await Promise.all([req(s.getAllKeys()), req(s.getAll())]);

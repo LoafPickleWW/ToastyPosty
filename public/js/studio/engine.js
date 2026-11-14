@@ -2,6 +2,8 @@
 // Everything is sized relative to a 1080px-wide frame (u = W / 1080), so the same code draws the
 // full-size export, the on-screen preview and the tiny live template thumbnails.
 
+import { isAmazon } from '../shop.js';
+
 export const FORMATS = [
   { id: '9:16', label: '9:16', sub: 'TikTok · Reels', w: 1080, h: 1920 },
   { id: '4:5', label: '4:5', sub: 'Feed post', w: 1080, h: 1350 },
@@ -242,6 +244,59 @@ function step(e) {
   return { i, local: e.t - start, len: end - start, s: e.slides[i], prev: e.slides[i - 1] };
 }
 
+// ---------- Shop the Look helpers ----------
+const SAMPLE_PRODUCTS = [
+  { name: 'Linen button-up', brand: 'Abercrombie', price: '58' },
+  { name: 'Wide-leg trousers', brand: 'Aritzia', price: '98' },
+  { name: 'Woven tote', brand: 'Madewell', price: '78' },
+  { name: 'Gold hoops', brand: 'Mejuri', price: '65' },
+  { name: 'Leather slides', brand: 'Steve Madden', price: '70' },
+  { name: 'Cat-eye sunnies', brand: 'Quay', price: '55' },
+];
+const productFor = (s, i) => s.product || (String(s.id).startsWith('sample') ? SAMPLE_PRODUCTS[i % SAMPLE_PRODUCTS.length] : {});
+
+function shopEnd(ctx, e, lt) {
+  const u = e.u;
+  cover(ctx, e.slides[0].blur, 0, 0, e.W, e.H, 1.2);
+  ctx.fillStyle = 'rgba(20,12,8,0.45)';
+  ctx.fillRect(0, 0, e.W, e.H);
+  const m = Math.min(e.n, 6), cols = m <= 2 ? m : m <= 4 ? 2 : 3, rows = Math.ceil(m / cols);
+  const g = 20 * u, size = Math.min((e.W - 120 * u - g * (cols - 1)) / cols, (e.H * 0.42 - g * (rows - 1)) / rows);
+  const gw = cols * size + (cols - 1) * g, top = e.H * 0.42 - (rows * size + (rows - 1) * g) / 2;
+  for (let k = 0; k < m; k++) {
+    const a = clamp((lt - k * 0.08) / 0.35);
+    if (a <= 0) continue;
+    const x = (e.W - gw) / 2 + (k % cols) * (size + g), y = top + Math.floor(k / cols) * (size + g);
+    ctx.save();
+    ctx.globalAlpha = a;
+    ctx.translate(x + size / 2, y + size / 2); ctx.scale(lerp(0.7, 1, back(a)), lerp(0.7, 1, back(a)));
+    ctx.beginPath(); rr(ctx, -size / 2, -size / 2, size, size, 24 * u); ctx.save(); ctx.clip();
+    cover(ctx, e.slides[k], -size / 2, -size / 2, size, size);
+    ctx.restore();
+    ctx.fillStyle = '#fff';
+    ctx.beginPath(); ctx.arc(-size / 2 + 34 * u, -size / 2 + 34 * u, 24 * u, 0, 7); ctx.fill();
+    ctx.fillStyle = '#111'; ctx.font = fontCss('tiktok', 26 * u); ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(String(k + 1), -size / 2 + 34 * u, -size / 2 + 35 * u);
+    ctx.restore();
+  }
+  const a = clamp((lt - 0.3) / 0.4);
+  ctx.save();
+  ctx.globalAlpha = a;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.font = `400 ${120 * u}px "Anton", Impact, sans-serif`;
+  ctx.fillStyle = '#fff';
+  ctx.fillText('SHOP THE LOOK', e.W / 2, top - 110 * u);
+  const cta = e.cta || '🔗 Link in bio';
+  ctx.font = fontCss('tiktok', 52 * u);
+  const w = ctx.measureText(cta).width + 80 * u, y = top + rows * size + (rows - 1) * g + 110 * u;
+  ctx.translate(e.W / 2, y); ctx.scale(lerp(0.8, 1, back(a)), lerp(0.8, 1, back(a)));
+  ctx.fillStyle = '#FFE14D';
+  rr(ctx, -w / 2, -52 * u, w, 104 * u, 52 * u); ctx.fill();
+  ctx.fillStyle = '#111';
+  ctx.fillText(cta, 0, 3 * u);
+  ctx.restore();
+}
+
 // ---------- Templates ----------
 const LIST = [
   {
@@ -257,6 +312,57 @@ const LIST = [
       full(ctx, s, e, 1.02 + 0.16 * (1 - k), (rand(i, 1) - 0.5) * 0.6, (rand(i, 2) - 0.5) * 0.6);
       ctx.restore();
       if (i > 0 && local < 0.08) { ctx.fillStyle = `rgba(255,255,255,${0.55 * (1 - local / 0.08)})`; ctx.fillRect(0, 0, e.W, e.H); }
+    },
+  },
+  {
+    id: 'shop', name: 'Shop the Look', tag: 'Shoppable', per: 2.4, min: 1.2, max: 5, unit: 'product',
+    blurb: 'Each photo gets a product card with its name, brand and price, then a “shop it all” end card with your call to action. Fill in the products under Photos.',
+    plan: (n, per) => even(n, per, 2),
+    draw(ctx, e) {
+      const u = e.u;
+      if (e.t >= e.n * e.per) return shopEnd(ctx, e, e.t - e.n * e.per);
+      const { i, local, s, prev } = step(e);
+      const tr = Math.min(0.3, e.per * 0.2);
+      full(ctx, s, e, 1.02 + 0.06 * clamp(local / e.per));
+      if (i > 0 && local < tr) { ctx.globalAlpha = 1 - local / tr; full(ctx, prev, e, 1.08); ctx.globalAlpha = 1; }
+      const p = productFor(s, i);
+      const k = clamp((local - 0.2) / 0.45);
+      if (k <= 0) return;
+      const tall = e.H / e.W > 1.6;
+      const cw = e.W - 120 * u, ch = 190 * u, cx = 60 * u;
+      const cy = tall ? e.H * 0.6 : e.H - ch - 70 * u;
+      ctx.save();
+      ctx.globalAlpha = clamp(k * 2.5);
+      ctx.translate(0, (1 - back(k)) * 140 * u);
+      ctx.shadowColor = 'rgba(0,0,0,0.35)'; ctx.shadowBlur = 40 * u; ctx.shadowOffsetY = 14 * u;
+      ctx.fillStyle = '#FFFFFF';
+      rr(ctx, cx, cy, cw, ch, 34 * u); ctx.fill();
+      ctx.shadowColor = 'transparent';
+      // number
+      ctx.fillStyle = '#111';
+      ctx.beginPath(); ctx.arc(cx + 78 * u, cy + ch / 2, 44 * u, 0, 7); ctx.fill();
+      ctx.fillStyle = '#fff'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.font = fontCss('tiktok', 44 * u);
+      ctx.fillText(String(i + 1), cx + 78 * u, cy + ch / 2 + 2 * u);
+      // price on the right
+      ctx.textAlign = 'right';
+      ctx.font = fontCss('tiktok', 54 * u);
+      const price = p.price && !isAmazon(p.url) ? (/^[\d.,]+$/.test(String(p.price).trim()) ? '$' + String(p.price).trim() : String(p.price).trim()) : '';
+      const pw = price ? ctx.measureText(price).width + 40 * u : 0;
+      if (price) { ctx.fillStyle = '#D7263D'; ctx.fillText(price, cx + cw - 36 * u, cy + ch / 2 + 2 * u); }
+      // brand + name
+      ctx.textAlign = 'left';
+      const tx = cx + 148 * u, tw = cw - 148 * u - 36 * u - pw;
+      const fit = (str) => { let t = str; while (t.length > 1 && ctx.measureText(t).width > tw) t = t.slice(0, -2) + '…'; return t; };
+      if (p.brand) {
+        ctx.font = `600 ${30 * u}px "DM Mono", monospace`;
+        ctx.fillStyle = '#8F7B6A';
+        ctx.fillText(fit(p.brand.toUpperCase()), tx, cy + ch / 2 - 30 * u);
+      }
+      ctx.font = fontCss('tiktok', 50 * u);
+      ctx.fillStyle = '#111';
+      ctx.fillText(fit(p.name || `Product ${i + 1}`), tx, cy + ch / 2 + (p.brand ? 22 * u : 2 * u));
+      ctx.restore();
     },
   },
   {
@@ -597,24 +703,30 @@ function layoutCaption(ctx, c, e) {
   return { s, lines, lh, bw, bh, left, top, cx, cy };
 }
 
+// Dark text gets a light edge (outline, shadow, glow) and light text a dark one, so it reads on any photo.
+const isDark = (hex) => contrast(hex) === '#FFFFFF';
+const edgeFor = (ink) => (isDark(ink) ? '#FFFFFF' : '#000000');
+
 function drawWord(ctx, c, t, x, y, s, ink) {
+  const edge = edgeFor(ink);
   switch (c.style) {
     case 'outline':
-      ctx.lineWidth = s * 0.18; ctx.strokeStyle = '#000'; ctx.strokeText(t, x, y);
+      ctx.lineWidth = s * 0.18; ctx.strokeStyle = edge; ctx.strokeText(t, x, y);
       ctx.fillStyle = ink; ctx.fillText(t, x, y); break;
     case 'box':
       ctx.fillStyle = ink === c.color ? contrast(c.color) : ink; ctx.fillText(t, x, y); break;
     case 'shadow':
-      ctx.shadowColor = 'rgba(0,0,0,0.6)'; ctx.shadowBlur = s * 0.3; ctx.shadowOffsetY = s * 0.06;
+      ctx.shadowColor = isDark(ink) ? 'rgba(255,255,255,0.85)' : 'rgba(0,0,0,0.6)'; ctx.shadowBlur = s * 0.3; ctx.shadowOffsetY = s * 0.06;
       ctx.fillStyle = ink; ctx.fillText(t, x, y);
       ctx.shadowColor = 'transparent'; ctx.shadowBlur = 0; ctx.shadowOffsetY = 0; break;
     case 'hard':
-      ctx.fillStyle = '#000'; ctx.fillText(t, x + s * 0.07, y + s * 0.08);
-      ctx.lineWidth = s * 0.08; ctx.strokeStyle = '#000'; ctx.strokeText(t, x, y);
+      ctx.fillStyle = edge; ctx.fillText(t, x + s * 0.07, y + s * 0.08);
+      ctx.lineWidth = s * 0.08; ctx.strokeStyle = edge; ctx.strokeText(t, x, y);
       ctx.fillStyle = ink; ctx.fillText(t, x, y); break;
     case 'neon':
-      ctx.shadowColor = ink; ctx.shadowBlur = s * 0.6; ctx.fillStyle = ink; ctx.fillText(t, x, y);
-      ctx.shadowBlur = s * 0.18; ctx.fillStyle = '#FFFFFF'; ctx.fillText(t, x, y);
+      // a dark "neon" glows white around dark letters; a bright one keeps the white-hot core
+      ctx.shadowColor = isDark(ink) ? '#FFFFFF' : ink; ctx.shadowBlur = s * 0.6; ctx.fillStyle = ink; ctx.fillText(t, x, y);
+      ctx.shadowBlur = s * 0.18; ctx.fillStyle = isDark(ink) ? ink : '#FFFFFF'; ctx.fillText(t, x, y);
       ctx.shadowColor = 'transparent'; ctx.shadowBlur = 0; break;
     default:
       ctx.fillStyle = ink; ctx.fillText(t, x, y);
@@ -623,7 +735,9 @@ function drawWord(ctx, c, t, x, y, s, ink) {
 
 function drawCaption(ctx, c, e, start, end) {
   if (!c.text.trim() || e.t < start || e.t > end) return null;
-  const a = e.t - start, dur = Math.max(0.3, end - start);
+  const dur = Math.max(0.3, end - start);
+  // While editing (preview paused) show the caption fully revealed; entrance animations only play back.
+  const a = e.settled ? dur : e.t - start;
   const L = layoutCaption(ctx, c, e);
   const words = L.lines.flatMap((l) => l.words);
   if (!words.length) return null;
@@ -636,7 +750,7 @@ function drawCaption(ctx, c, e, start, end) {
   const chars = words.reduce((n, w) => n + w.t.length, 0);
   const cps = Math.min(0.055, (dur * 0.6) / Math.max(1, chars));
   const shownChars = c.anim === 'type' ? Math.floor(a / cps) : Infinity;
-  const active = c.anim === 'karaoke' ? Math.min(words.length - 1, Math.floor(a / Math.min(0.5, (dur * 0.9) / words.length))) : -1;
+  const active = c.anim === 'karaoke' && e.settled ? 0 : c.anim === 'karaoke' ? Math.min(words.length - 1, Math.floor(a / Math.min(0.5, (dur * 0.9) / words.length))) : -1;
   const accent = /^#(FFE14D|FF8A00|7CFF6B)$/i.test(c.color) ? '#25F4EE' : '#FFE14D';
   const pad = c.style === 'box' || c.style === 'soft' ? s * 0.32 : s * 0.15;
 
@@ -658,7 +772,7 @@ function drawCaption(ctx, c, e, start, end) {
   }).filter(Boolean));
 
   if (c.style === 'box' || c.style === 'soft') {
-    ctx.fillStyle = c.style === 'box' ? c.color : 'rgba(0,0,0,0.6)';
+    ctx.fillStyle = c.style === 'box' ? c.color : isDark(c.color) ? 'rgba(255,255,255,0.75)' : 'rgba(0,0,0,0.6)';
     L.lines.forEach((line, li) => {
       const vis = plan[li];
       if (!vis.length) return;
@@ -704,11 +818,11 @@ function safeZones(ctx, e) {
 
 // ---------- One frame ----------
 // Returns the on-canvas box of each visible caption (for click-to-select and dragging).
-export function renderFrame(ctx, proj, t, { template, captions = true, selected, safe } = {}) {
+export function renderFrame(ctx, proj, t, { template, captions = true, selected, safe, settled = false } = {}) {
   const W = ctx.canvas.width, H = ctx.canvas.height;
   const id = template || proj.template;
   const tl = timeline(proj, id);
-  const e = { W, H, u: W / 1080, slides: tl.slides, n: tl.n, per: tl.per, plan: tl, total: tl.total, fit: proj.fit, t: clamp(t, 0, tl.total - 1e-4) };
+  const e = { W, H, u: W / 1080, slides: tl.slides, n: tl.n, per: tl.per, plan: tl, total: tl.total, fit: proj.fit, cta: proj.shopCta, settled, t: clamp(t, 0, tl.total - 1e-4) };
   ctx.save();
   ctx.fillStyle = '#000';
   ctx.fillRect(0, 0, W, H);

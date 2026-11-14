@@ -2,6 +2,7 @@
 // Accounts, keys, posts, feeds, settings and media are saved in this browser (IndexedDB).
 // Anything that has to reach a platform goes through the stateless /api relay, carrying only what it needs.
 import * as idb from './db.js';
+import { finalText } from './shop.js';
 
 const CODE_KEY = 'toastyposty.code';
 const uid = (p = '') => p + crypto.getRandomValues(new Uint32Array(2)).reduce((s, n) => s + n.toString(16).padStart(8, '0'), '').slice(0, 12);
@@ -18,6 +19,10 @@ const EMPTY = () => ({
     publicBaseUrl: '',
     brandVoice: '',
     defaultHashtags: '',
+    amazonTag: '',
+    shopUrl: '',
+    disclosure: '',
+    amazonDisclosure: '',
     ai: { anthropicKey: '', openaiKey: '', textProvider: 'auto', claudeModel: 'claude-opus-5-5', openaiTextModel: 'gpt-5', openaiImageModel: 'gpt-image-1' },
   },
 });
@@ -185,7 +190,8 @@ async function publishPost(post) {
           }
           meta.push(entry);
         }
-        const text = (post.overrides?.[account.platform]?.text?.trim()) || post.text || '';
+        const base = (post.overrides?.[account.platform]?.text?.trim()) || post.text || '';
+        const text = finalText(base, account.platform, post.shop, db.settings); // adds the #ad disclosure + product links
         form.append('payload', JSON.stringify({ account, text, options: post.overrides?.[account.platform] || {}, media: meta }));
         const r = await net(`/api/p/${account.platform}/publish`, { form });
         account.credentials = r.credentials;
@@ -345,7 +351,7 @@ export async function handle(path, { method = 'GET', body = {}, form } = {}) {
       let post = body.id && db.posts.find((x) => x.id === body.id);
       if (post && ['publishing', 'published'].includes(post.status)) fail('That post already went out.');
       if (!post) { post = { id: uid('p_'), createdAt: new Date().toISOString(), results: {} }; db.posts.push(post); }
-      Object.assign(post, { text: body.text || '', overrides: body.overrides || {}, mediaIds: body.mediaIds || [], targets: body.targets || [], scheduledAt: body.scheduledAt || null, updatedAt: new Date().toISOString() });
+      Object.assign(post, { text: body.text || '', overrides: body.overrides || {}, mediaIds: body.mediaIds || [], targets: body.targets || [], scheduledAt: body.scheduledAt || null, shop: body.shop || null, updatedAt: new Date().toISOString() });
       if (body.action !== 'draft' && !post.targets.length) fail('Pick at least one account to post to.');
       post.status = body.action === 'schedule' ? 'scheduled' : body.action === 'now' ? 'queued' : 'draft';
       if (post.status === 'scheduled' && !post.scheduledAt) fail('Pick a time to schedule it.');
@@ -388,7 +394,7 @@ export async function handle(path, { method = 'GET', body = {}, form } = {}) {
 
   if (res === 'settings' && M === 'PUT') {
     const s = db.settings;
-    for (const k of ['theme', 'publicBaseUrl', 'brandVoice', 'defaultHashtags']) if (typeof body[k] === 'string') s[k] = body[k].trim();
+    for (const k of ['theme', 'publicBaseUrl', 'brandVoice', 'defaultHashtags', 'amazonTag', 'shopUrl', 'disclosure', 'amazonDisclosure']) if (typeof body[k] === 'string') s[k] = body[k].trim();
     if (body.ai) {
       const { clearAnthropic, clearOpenAI, ...rest } = body.ai;
       s.ai = mergeSecrets(s.ai, rest);

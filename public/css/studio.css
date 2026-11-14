@@ -115,3 +115,23 @@
   .st-result { grid-template-columns: minmax(0, 1fr); }
   .st-result video { max-height: 46vh; width: auto; margin: 0 auto; }
 }
+
+/* Shop the Look products */
+.st-prods { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line); display: grid; gap: 12px; }
+.st-prods-head { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+.st-prods-head span { font-size: 12.5px; color: var(--ink-3); }
+.st-prod-list { display: grid; gap: 10px; }
+.st-prod { position: relative; display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 10px; align-items: start; }
+.st-prod img { width: 64px; height: 84px; object-fit: cover; border-radius: 10px; border: 1px solid var(--line); }
+.st-prod .st-n { position: absolute; left: 4px; top: 4px; padding: 2px 6px; border-radius: 6px; font: 500 10.5px/1.3 var(--mono); background: rgba(20, 12, 8, 0.72); color: #fff; }
+.st-prod-f { display: grid; gap: 6px; min-width: 0; }
+.st-prod-f .input { width: 100%; min-width: 0; min-height: 34px; padding: 6px 10px; font-size: 13.5px; }
+.st-prod-row { display: grid; grid-template-columns: minmax(0, 1fr) 96px; gap: 6px; }
+.st-cta .input { width: 100%; min-height: 36px; padding: 6px 10px; }
+.st-cta .st-looks { margin-top: 4px; }
+.st-cta .st-looks button { font-size: 12.5px; padding: 5px 10px; }
+
+/* Saved-project footer */
+.st-reset { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; padding: 12px 4px 0; border-top: 1px dashed var(--line-2); font-size: 12.5px; color: var(--ink-3); }
+.st-reset > span { display: inline-flex; align-items: center; gap: 6px; }
+.st-reset > span svg { width: 15px; height: 15px; color: var(--ok); }

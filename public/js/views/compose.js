@@ -2,9 +2,10 @@
 import { h, icon, pb, ava, pop, modal, busy, toastIcon, toLocalInput, fmtWhen, fmtTime } from '../ui.js';
 import { BRAND_PATHS } from '../brands.js';
 import { state, api, load, platform, account, media, mediaUrl } from '../api.js';
+import { blankShop, finalText, networkOf, networkName, isAmazon, cleanUrl, CTAS, CLICKABLE, affiliateLinksIn } from '../shop.js';
 
 const DRAFT_KEY = 'toastyposty.draft';
-const blank = () => ({ id: null, text: '', overrides: {}, mediaIds: [], targets: [], scheduledAt: null });
+const blank = () => ({ id: null, text: '', overrides: {}, mediaIds: [], targets: [], scheduledAt: null, shop: blankShop() });
 const seg = typeof Intl !== 'undefined' && Intl.Segmenter ? new Intl.Segmenter() : null;
 const graphemes = (t) => (seg ? [...seg.segment(t)].map((s) => s.segment) : [...t]);
 const TONES = ['Punchy', 'Friendly', 'Professional', 'Playful', 'Deadpan'];
@@ -32,12 +33,13 @@ function richText(text, limit, over) {
 export default function compose(root, { arg }) {
   if (arg) {
     const p = state.posts.find((x) => x.id === arg);
-    if (p) state.draft = { id: p.id, text: p.text, overrides: structuredClone(p.overrides || {}), mediaIds: [...(p.mediaIds || [])], targets: [...p.targets], scheduledAt: p.scheduledAt };
+    if (p) state.draft = { id: p.id, text: p.text, overrides: structuredClone(p.overrides || {}), mediaIds: [...(p.mediaIds || [])], targets: [...p.targets], scheduledAt: p.scheduledAt, shop: structuredClone(p.shop || blankShop()) };
   }
   if (!state.draft) state.draft = loadLocal() || blank();
   const d = state.draft;
   d.targets = d.targets.filter((t) => account(t));
   d.mediaIds = d.mediaIds.filter((m) => media(m));
+  d.shop = { ...blankShop(), ...(d.shop || {}) };
   let tone = 'Punchy';
   let mode = d.scheduledAt ? 'later' : 'now';
 
@@ -121,6 +123,64 @@ export default function compose(root, { arg }) {
     });
   }
 
+  // ---------- Shop this post (affiliate products) ----------
+  const shopSec = h('div');
+  const shopFold = { open: d.shop.products.length > 0 };
+  function recentProducts() {
+    const seen = new Set(d.shop.products.map((p) => p.url));
+    const out = [];
+    for (const post of [...state.posts].reverse()) for (const p of post.shop?.products || []) {
+      if (p.url && !seen.has(p.url)) { seen.add(p.url); out.push(p); }
+    }
+    return out.slice(0, 12);
+  }
+  function renderShop() {
+    const sh = d.shop;
+    const touchShop = () => { saveLocal(d); renderPreviews(); };
+    const settingsTip = !state.settings?.amazonTag || !state.settings?.shopUrl;
+    if (!shopFold.open) {
+      shopSec.replaceChildren(h('button.btn.sm', { type: 'button', onclick: () => { shopFold.open = true; if (!sh.products.length) sh.products.push({ name: '', brand: '', price: '', url: '' }); renderShop(); } }, icon('tag'), 'Add product links'),
+        h('span.muted.shop-sub', 'Affiliate links from LTK, ShopMy, Amazon or any store.'));
+      return;
+    }
+    const rows = sh.products.map((p, i) => {
+      const net = networkOf(p.url);
+      const amazon = isAmazon(p.url);
+      const set = (k) => (e) => { p[k] = e.target.value; touchShop(); };
+      const badge = h('span.net' + (net ? '.on' : ''), net ? networkName(net) : 'Link');
+      return h('div.prod',
+        h('span.prod-n', String(i + 1)),
+        h('div.prod-f',
+          h('input.input', { value: p.url, placeholder: 'Paste your product link (LTK, ShopMy, Amazon…)', 'aria-label': `Link for product ${i + 1}`, inputmode: 'url',
+            oninput: (e) => { p.url = e.target.value.trim(); const n = networkOf(cleanUrl(p.url)); badge.textContent = n ? networkName(n) : 'Link'; badge.classList.toggle('on', !!n); touchShop(); },
+            onchange: (e) => { p.url = cleanUrl(e.target.value) || e.target.value.trim(); e.target.value = p.url; renderShop(); touchShop(); } }),
+          h('div.prod-row',
+            h('input.input', { value: p.name, placeholder: 'What is it? e.g. Linen button-up', 'aria-label': `Name of product ${i + 1}`, oninput: set('name') }),
+            h('input.input.prod-brand', { value: p.brand || '', placeholder: 'Brand', 'aria-label': `Brand of product ${i + 1}`, oninput: set('brand') }),
+            amazon
+              ? h('span.prod-noprice', { title: 'Amazon’s Associates rules don’t allow prices you type in yourself, because they go out of date.' }, 'no price (Amazon)')
+              : h('input.input.prod-price', { value: p.price || '', placeholder: 'Price', 'aria-label': `Price of product ${i + 1}`, oninput: set('price') }))),
+        h('div.prod-side', badge,
+          h('button.btn.quiet.icon.danger', { type: 'button', 'aria-label': `Remove product ${i + 1}`, onclick: () => { sh.products.splice(i, 1); renderShop(); touchShop(); } }, icon('trash'))));
+    });
+    const recent = recentProducts();
+    const kw = h('input.input.kw', { value: sh.keyword, maxlength: 20, 'aria-label': 'Comment keyword', oninput: (e) => { sh.keyword = e.target.value.replace(/\s+/g, '').toUpperCase(); e.target.value = sh.keyword; touchShop(); } });
+    shopSec.replaceChildren(
+      h('div.prods', rows),
+      h('div.row.shop-add',
+        h('button.btn.sm', { type: 'button', onclick: () => { sh.products.push({ name: '', brand: '', price: '', url: '' }); renderShop(); shopSec.querySelector('.prod:last-child input')?.focus(); } }, icon('plus'), 'Add product'),
+        recent.length ? h('select.input.sm-select', { 'aria-label': 'Add a product you linked before', onchange: (e) => { const p = recent[Number(e.target.value)]; if (p) { sh.products = sh.products.filter((x) => x.url || x.name); sh.products.push({ ...p }); renderShop(); touchShop(); } } },
+          h('option', { value: '' }, 'Add one you’ve linked before…'), recent.map((p, i) => h('option', { value: i }, `${p.name || p.url}${p.brand ? ' · ' + p.brand : ''}`))) : null),
+      h('div.shop-opts',
+        h('div.field', h('span', 'On Instagram & TikTok (links aren’t clickable there)'),
+          h('div.seg', { role: 'group', 'aria-label': 'Call to action' }, CTAS.map(([v, l]) => h('button', { type: 'button', 'aria-pressed': String(sh.cta === v), onclick: () => { sh.cta = v; renderShop(); touchShop(); } }, l))),
+          sh.cta === 'comment' ? h('div.row.kw-row', h('span', 'Keyword'), kw, h('small', 'Set up the auto-reply in ManyChat or Instagram’s own automations so commenters get the links by DM.')) : null),
+        h('label.check', h('input', { type: 'checkbox', checked: sh.list !== false, onchange: (e) => { sh.list = e.target.checked; touchShop(); } }), 'List the products in the caption (with links where they’re clickable)'),
+        h('label.check', h('input', { type: 'checkbox', checked: sh.disclose, onchange: (e) => { sh.disclose = e.target.checked; renderShop(); touchShop(); } }), 'Add the #ad disclosure at the top'),
+        !sh.disclose && sh.products.length ? h('div.pv-warn', 'The FTC requires a clear disclosure when you earn from links, placed where people see it before tapping “more”.') : null,
+        settingsTip ? h('p.muted.shop-sub', 'Tip: add your Amazon Associates tag and your LTK/ShopMy shop link in ', h('a', { href: '#/settings' }, 'Settings'), ' and they’re used automatically.') : null));
+  }
+
   // ---------- Inspiration (from a feed item's "Toast this") ----------
   const inspoSec = h('div');
   function renderInspo() {
@@ -195,8 +255,14 @@ export default function compose(root, { arg }) {
   async function draftAll() {
     const plats = [...new Set(d.targets.map((t) => account(t)?.platform).filter(Boolean))];
     const img = d.mediaIds.map(media).find((m) => m?.mime.startsWith('image/'));
-    if (!d.text.trim() && !img) return pop('Jot a few notes (or add a photo) and the AI will write the posts.', { kind: 'err', title: 'Nothing to work with' });
-    const r = await api('/api/ai/caption', { method: 'POST', body: { notes: d.text, platforms: plats.length ? plats : ['x', 'bluesky', 'instagram'], tone, mediaId: img?.id } });
+    if (!d.text.trim() && !img && !d.shop.products.some((p) => p.name)) return pop('Jot a few notes (or add a photo) and the AI will write the posts.', { kind: 'err', title: 'Nothing to work with' });
+    const prods = d.shop.products.filter((p) => p.name || p.brand);
+    const notes = prods.length
+      ? `${d.text}
+
+This post sells these products through my affiliate links: ${prods.map((p) => [p.name, p.brand && 'by ' + p.brand].filter(Boolean).join(' ')).join('; ')}. Open with a scroll-stopping hook about the look or the problem they solve, say why I like them in my own words, and keep it genuine. Do not include links, prices, a link-in-bio line or #ad: those are added automatically.`
+      : d.text;
+    const r = await api('/api/ai/caption', { method: 'POST', body: { notes, platforms: plats.length ? plats : ['x', 'bluesky', 'instagram'], tone, mediaId: img?.id } });
     d.text = r.base;
     text.value = r.base; grow();
     for (const [p, txt] of Object.entries(r.platforms || {})) d.overrides[p] = { ...(d.overrides[p] || {}), text: txt };
@@ -241,7 +307,7 @@ export default function compose(root, { arg }) {
     const a = account(d.targets.find((t) => account(t)?.platform === pid));
     const o = (d.overrides[pid] ||= {});
     const custom = typeof o.text === 'string';
-    const getText = () => (custom ? o.text : d.text);
+    const getText = () => finalText(custom ? o.text : d.text, pid, d.shop, state.settings || {});
 
     const doneEl = h('span.done');
     const body = h('div.pv-text');
@@ -271,6 +337,14 @@ export default function compose(root, { arg }) {
     if (!P.limits.video && hasVid) warns.push(`Video isn’t supported for ${P.name} yet.`);
     if (mediaList.filter((m) => m.mime.startsWith('image/')).length > P.limits.images) warns.push(`${P.name} only takes ${P.limits.images} image${P.limits.images > 1 ? 's' : ''}; extras are skipped.`);
     if (pid === 'bluesky' && mediaList.some((m) => m.size > 1_000_000)) warns.push('One image is over Bluesky’s 1MB limit.');
+    const shopN = d.shop?.products?.filter((x) => x.url || x.name).length || 0;
+    const finalT = getText();
+    if (affiliateLinksIn(finalT).length && !/#ad\b|#affiliate|#sponsored|#commissionsearned|commission|paid partnership/i.test(finalT)) warns.push('This post has affiliate links but no disclosure. Add #ad (or tick the disclosure under Shop this post).');
+    if (shopN && !CLICKABLE[pid] && d.shop.cta === 'bio' && !state.settings?.shopUrl) warns.push(`Links aren’t clickable in ${P.name} captions. Make sure your bio links to your shop (LTK, ShopMy or a storefront).`);
+    if (pid === 'instagram' && shopN) warns.push('Want tappable products? If your account has Instagram’s affiliate product tags, add them to the Reel in the app after it posts.');
+    if (pid === 'tiktok' && shopN && !o.disclose) warns.push('Selling affiliate products? TikTok asks you to turn on “Disclose commercial content” below.');
+    if (pid === 'tiktok' && o.disclose && !o.yourBrand && !o.brandedContent) warns.push('Pick “Your brand” or “Branded content”, or turn the disclosure off. TikTok won’t post it otherwise.');
+    if (pid === 'tiktok' && o.disclose && o.brandedContent && (o.privacy || 'SELF_ONLY') === 'SELF_ONLY') warns.push('TikTok doesn’t allow branded content to be “Only me”. Pick a wider audience (needs an audited TikTok app).');
     if (a && a.status !== 'ok') warns.push(`${a.label}: ${a.status === 'pending' ? 'needs authorization' : 'connection problem'}. Check Accounts.`);
 
     const opts = [];
@@ -280,9 +354,17 @@ export default function compose(root, { arg }) {
         h('label.field', h('span', 'Title'), h('input', { value: o.title || '', placeholder: 'Uses the first line if empty', maxlength: 300, oninput: (e) => { o.title = e.target.value; saveLocal(d); paint(); } })));
     }
     if (pid === 'tiktok') {
-      opts.push(h('label.field.full', h('span', 'Who can watch'), h('select', { onchange: (e) => { o.privacy = e.target.value; saveLocal(d); } },
+      const rerender = () => { saveLocal(d); renderPreviews(); };
+      opts.push(h('label.field.full', h('span', 'Who can watch'), h('select', { onchange: (e) => { o.privacy = e.target.value; rerender(); } },
         [['SELF_ONLY', 'Only me (required until TikTok audits your app)'], ['PUBLIC_TO_EVERYONE', 'Everyone'], ['MUTUAL_FOLLOW_FRIENDS', 'Friends'], ['FOLLOWER_OF_CREATOR', 'Followers']]
           .map(([v, l]) => h('option', { value: v, selected: (o.privacy || 'SELF_ONLY') === v }, l)))));
+      // TikTok's content disclosure setting: off by default, and you must pick at least one option when it's on.
+      opts.push(h('div.field.full.tt-disclose',
+        h('label.check', h('input', { type: 'checkbox', checked: !!o.disclose, onchange: (e) => { o.disclose = e.target.checked; rerender(); } }), h('b', 'Disclose commercial content'), h('small', 'This post promotes a brand, product or service')),
+        o.disclose ? h('div.tt-opts',
+          h('label.check', h('input', { type: 'checkbox', checked: !!o.yourBrand, onchange: (e) => { o.yourBrand = e.target.checked; rerender(); } }), 'Your brand', h('small', 'Shows as “Promotional content”')),
+          h('label.check', h('input', { type: 'checkbox', checked: !!o.brandedContent, onchange: (e) => { o.brandedContent = e.target.checked; rerender(); } }), 'Branded content', h('small', 'Paid partnership or affiliate; shows as “Paid partnership”')),
+          o.brandedContent ? h('small.tt-legal', 'By posting, you agree to TikTok’s ', h('a', { href: 'https://www.tiktok.com/legal/page/global/bc-policy/en', target: '_blank', rel: 'noopener' }, 'Branded Content Policy'), '.') : null) : null));
     }
 
     const card = h('article.card.pv',
@@ -450,6 +532,7 @@ export default function compose(root, { arg }) {
         inspoSec,
         h('div.composer-sec', text, textMeta),
         h('div.composer-sec', h('div.sec-label', h('span', 'Media'), h('a', { href: '#/studio/post', title: 'Turn your photos into a TikTok / Reels video' }, 'Make a video from photos →')), mediaRow, fileInput),
+        h('div.composer-sec', h('div.sec-label', h('span', 'Shop this post'), d.shop.products.length ? h('span.muted', { style: { fontSize: '12.5px' } }, d.shop.products.length + ' linked') : null), shopSec),
         h('div.composer-sec', h('div.sec-label', h('span', 'AI assist'), state.providers?.text ? h('span.muted', { style: { fontSize: '12.5px' } }, state.providers.text === 'claude' ? 'Claude' : 'OpenAI') : null), aiSec),
         dock),
       previews));
@@ -458,6 +541,7 @@ export default function compose(root, { arg }) {
   renderMedia();
   renderAI();
   renderInspo();
+  renderShop();
   renderPreviews();
   renderDock();
   updateMeta();

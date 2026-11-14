@@ -52,6 +52,24 @@ export default function settings(root) {
         }, 'Testing…') }, icon('ext'), 'Test with an image')));
   }
 
+  // Affiliate selling: used by "Shop this post" in Compose and the Shop the Look video template.
+  function shopSection() {
+    const tag = h('input', { value: s.amazonTag || '', placeholder: 'yourname-20', spellcheck: false });
+    const shopUrl = h('input', { value: s.shopUrl || '', placeholder: 'https://www.shopltk.com/explore/yourname', inputmode: 'url' });
+    const disc = h('input', { value: s.disclosure || '', placeholder: '#ad I earn a commission from links in this post.' });
+    const amz = h('input', { value: s.amazonDisclosure || '', placeholder: '#CommissionsEarned' });
+    return h('section.card.set',
+      h('h2', 'Selling & affiliate links'),
+      h('p', 'Used when you add product links to a post. The disclosure goes at the top of every shoppable post, where people see it before “more”.'),
+      h('div.two',
+        h('label.field', h('span', 'Amazon Associates tracking tag'), tag, h('small', 'Added to full Amazon product links automatically. Short amzn.to links keep the tag they were made with.')),
+        h('label.field', h('span', 'Your shop link'), shopUrl, h('small', 'Your LTK, ShopMy or Amazon storefront. Used as the one “shop everything” link on X, Bluesky and Reddit; keep it in your Instagram and TikTok bio too.'))),
+      h('div.two',
+        h('label.field', h('span', 'Disclosure'), disc, h('small', 'Keep it plain and up front. “#ad” or “I earn a commission” both work.')),
+        h('label.field', h('span', 'Extra disclosure for Amazon links'), amz, h('small', 'Check the wording your Amazon Associates agreement asks for.'))),
+      h('button.btn.primary', { onclick: (e) => busy(e.currentTarget, () => save({ amazonTag: tag.value.trim(), shopUrl: shopUrl.value.trim(), disclosure: disc.value.trim(), amazonDisclosure: amz.value.trim() }, 'Selling settings saved.'), 'Saving…') }, 'Save'));
+  }
+
   function dataSection() {
     const file = h('input', { type: 'file', accept: 'application/json,.json', hidden: true, onchange: async () => {
       const f = file.files[0];
@@ -118,6 +136,8 @@ export default function settings(root) {
         h('label.field', h('span', 'How you write'), voice),
         h('label.field', h('span', 'Hashtags you like'), tags, h('small', 'Only used when they fit the post.')),
         h('button.btn.primary', { onclick: (e) => busy(e.currentTarget, () => save({ brandVoice: voice.value, defaultHashtags: tags.value }, 'Voice saved.'), 'Saving…') }, 'Save voice')),
+
+      shopSection(),
 
       publicMediaSection(),
 

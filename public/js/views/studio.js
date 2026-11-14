@@ -1,18 +1,76 @@
 // Video Studio: turn a handful of photos into a TikTok / Reels video, right in the browser.
 // Pick a template, add captions, drop in a song, export an MP4 and add it to a post.
-import { h, icon, pop, modal, busy } from '../ui.js';
+import { h, icon, pop, modal, busy, confirmBox } from '../ui.js';
 import { state, api, media, mediaUrl } from '../api.js';
 import {
   FORMATS, FONTS, STYLES, ANIMS, COLORS, LOOKS, TEMPLATE_LIST, TEMPLATES,
   renderFrame, timeline, captionWindow, paceOf, loadSlide, ensureFonts, recordVideo, pickMime, newCaption, fontCss,
 } from '../studio/engine.js';
+import { blankShop, cleanUrl, isAmazon } from '../shop.js';
+import * as idb from '../db.js';
 
 const DRAFT_KEY = 'toastyposty.draft';
 const uid = () => Math.random().toString(36).slice(2, 10);
 const PREVIEW_SCALE = 2 / 3; // preview canvas draws at 720px wide; the export is full 1080
 
 // The project lives for this browser session, so hopping to Compose and back keeps your work.
-const proj = { template: 'dump', format: '9:16', fit: 'fill', pace: {}, slides: [], captions: [], audio: null };
+const fresh = () => ({ template: 'dump', format: '9:16', fit: 'fill', pace: {}, slides: [], captions: [], audio: null, shopCta: '🔗 Link in bio' });
+const proj = fresh();
+
+// ---------- Saved in this browser (IndexedDB): survives refreshes until you clear it ----------
+const snapshot = () => ({
+  template: proj.template, format: proj.format, fit: proj.fit, pace: proj.pace, captions: proj.captions, shopCta: proj.shopCta,
+  slides: proj.slides.map((s) => ({ id: s.id, mediaId: s.mediaId || null, product: s.product || null })),
+  audio: proj.audio ? { name: proj.audio.name, offset: proj.audio.offset, volume: proj.audio.volume } : null,
+});
+let restored = false, restoring = null;
+let savedMeta = '', savedIds = new Set(), savedAudio = null;
+async function restore() {
+  try {
+    const meta = await idb.get('studio');
+    if (meta) {
+      const { slides = [], audio, ...rest } = meta;
+      Object.assign(proj, fresh(), rest, { slides: [], audio: null });
+      if (!TEMPLATES[proj.template]) proj.template = 'dump';
+      if (!FORMATS.some((f) => f.id === proj.format)) proj.format = '9:16';
+      for (const sm of slides) {
+        const blob = await idb.getStudioFile(sm.id).catch(() => null);
+        if (!blob) continue;
+        try {
+          const s = await loadSlide(blob, sm.id);
+          Object.assign(s, { blob, mediaId: sm.mediaId || undefined, product: sm.product || undefined });
+          proj.slides.push(s);
+        } catch {}
+      }
+      const af = audio && (await idb.getStudioFile('audio').catch(() => null));
+      if (af) {
+        try {
+          const ac = new AudioContext();
+          const buffer = await ac.decodeAudioData(await af.arrayBuffer());
+          ac.close();
+          proj.audio = { ...audio, buffer, file: af };
+        } catch {}
+      }
+    }
+  } catch (e) { console.warn('[toasty] could not restore the video project', e); }
+  savedMeta = JSON.stringify(snapshot());
+  savedIds = new Set(proj.slides.map((s) => s.id));
+  savedAudio = proj.audio?.file || null;
+  restored = true;
+}
+async function persist() {
+  if (!restored) return; // never overwrite the saved project before it has loaded
+  try {
+    const ids = new Set(proj.slides.map((s) => s.id));
+    for (const s of proj.slides) if (!savedIds.has(s.id) && s.blob) await idb.putStudioFile(s.id, s.blob);
+    for (const id of savedIds) if (!ids.has(id)) await idb.delStudioFile(id);
+    savedIds = ids;
+    const af = proj.audio?.file || null;
+    if (af !== savedAudio) { af ? await idb.putStudioFile('audio', af) : await idb.delStudioFile('audio'); savedAudio = af; }
+    const meta = JSON.stringify(snapshot());
+    if (meta !== savedMeta) { await idb.set('studio', JSON.parse(meta)); savedMeta = meta; }
+  } catch (e) { console.warn('[toasty] video project save failed', e); }
+}
 
 const fmtT = (s) => `${Math.floor(s / 60)}:${(s % 60).toFixed(1).padStart(4, '0')}`;
 const fmtMB = (b) => (b / 1e6).toFixed(b > 1e7 ? 0 : 1) + ' MB';
@@ -94,7 +152,7 @@ export default function studio(root, { arg }) {
       dirty = true;
     }
     if (dirty) {
-      boxes = renderFrame(ctx, proj, t, { selected: drag ? null : selected, safe: showSafe });
+      boxes = renderFrame(ctx, proj, t, { selected: drag ? null : selected, safe: showSafe, settled: !playing });
       if (drag) { const b = boxes[drag.id]; if (b) outline(b); }
       scrub.max = tl.total.toFixed(2);
       scrub.value = String(Math.min(t, tl.total));
@@ -164,7 +222,7 @@ export default function studio(root, { arg }) {
     const list = [...files].filter((f) => f.type.startsWith('image/'));
     if (!list.length) return pop('Pick photos (JPG, PNG, WebP or HEIC your browser can open).', { kind: 'err' });
     for (const f of list) {
-      try { proj.slides.push(await loadSlide(f, uid())); }
+      try { const s = await loadSlide(f, uid()); s.blob = f; proj.slides.push(s); }
       catch { pop(`Couldn’t open ${f.name}.`, { kind: 'err' }); }
     }
     fileIn.value = '';
@@ -179,6 +237,7 @@ export default function studio(root, { arg }) {
         const blob = await fetch(mediaUrl(m)).then((r) => r.blob());
         const s = await loadSlide(blob, uid());
         s.mediaId = m.id;
+        s.blob = blob;
         proj.slides.push(s);
       } catch {}
     }
@@ -232,7 +291,39 @@ export default function studio(root, { arg }) {
         n > 1 ? h('button.btn.sm.quiet', { type: 'button', onclick: () => { proj.slides.reverse(); changed(); } }, 'Reverse') : null,
         n ? h('button.btn.sm.quiet.danger', { type: 'button', onclick: () => { proj.slides.forEach((s) => URL.revokeObjectURL(s.url)); proj.slides = []; changed(); } }, 'Clear') : null),
       n ? h('p.st-hint', hint) : '',
+      proj.template === 'shop' ? productsEditor() : '',
       fileIn);
+  }
+
+  // Shop the Look: one product per photo, plus the end-card call to action.
+  const draftProducts = () => (state.draft?.shop?.products || loadDraft()?.shop?.products || []).filter((p) => p.name || p.url);
+  function productsEditor() {
+    const n = proj.slides.length;
+    const ctaIn = h('input.input', { value: proj.shopCta, maxlength: 40, 'aria-label': 'End card call to action', oninput: (e) => { proj.shopCta = e.target.value; dirty = true; } });
+    const fromPost = draftProducts();
+    const rows = proj.slides.map((s, i) => {
+      const p = (s.product ||= { name: '', brand: '', price: '', url: '' });
+      const set = (k) => (e) => { p[k] = e.target.value; dirty = true; if (k === 'url') priceIn.disabled = isAmazon(cleanUrl(p.url)); };
+      const priceIn = h('input.input', { value: p.price, placeholder: 'Price', disabled: isAmazon(p.url), title: isAmazon(p.url) ? 'Amazon doesn’t allow prices you type in yourself' : '', 'aria-label': `Price ${i + 1}`, oninput: set('price') });
+      return h('div.st-prod',
+        h('img', { src: s.url, alt: '' }), h('span.st-n', String(i + 1)),
+        h('div.st-prod-f',
+          h('input.input', { value: p.name, placeholder: 'Product name', 'aria-label': `Product ${i + 1} name`, oninput: set('name') }),
+          h('div.st-prod-row',
+            h('input.input', { value: p.brand, placeholder: 'Brand', 'aria-label': `Brand ${i + 1}`, oninput: set('brand') }),
+            priceIn),
+          h('input.input', { value: p.url, placeholder: 'Affiliate link (goes into your post)', inputmode: 'url', 'aria-label': `Link ${i + 1}`, oninput: set('url') })));
+    });
+    return h('div.st-prods',
+      h('div.st-prods-head', h('b', 'Products'), h('span', 'One per photo. Shown on a card over each photo.')),
+      n ? h('div.st-prod-list', rows) : h('p.st-hint', 'Add a photo of each product (or each outfit piece) above, then name them here.'),
+      fromPost.length && n ? h('button.btn.sm.butter', { type: 'button', onclick: () => {
+        proj.slides.forEach((s, i) => { if (fromPost[i] && !(s.product?.name || s.product?.url)) s.product = { name: '', brand: '', price: '', ...fromPost[i] }; });
+        changed();
+      } }, icon('tag'), `Fill in from my post’s ${fromPost.length} product${fromPost.length === 1 ? '' : 's'}`) : '',
+      h('div.st-field.st-cta', h('span', 'End card says'), ctaIn,
+        h('div.st-looks', ['🔗 Link in bio', '💬 Comment "SHOP" for links', '🛍️ Shop my LTK', '🛒 Links on my storefront'].map((t) =>
+          h('button', { type: 'button', onclick: () => { proj.shopCta = t; ctaIn.value = t; dirty = true; } }, t)))));
   }
 
   // ---------- Templates ----------
@@ -273,6 +364,12 @@ export default function studio(root, { arg }) {
   function paintFontButtons() { fontButtons.forEach(([b, id]) => { b.style.font = fontCss(id, 15); }); }
   function addCaption(patch, text) {
     const c = newCaption({ ...patch, text: text || 'Your caption' });
+    // Don't stack a new caption right on top of one that's already there.
+    const taken = (y) => proj.captions.some((o) => o.from == null && c.from == null && Math.abs(o.y - y) < 0.08);
+    for (const dy of [0, 0.1, -0.1, 0.2, -0.2, 0.3, -0.3]) {
+      const y = c.y + dy;
+      if (y > 0.1 && y < 0.82 && !taken(y)) { c.y = Math.round(y * 100) / 100; break; }
+    }
     proj.captions.push(c);
     selected = c.id;
     if (!playing) t = Math.min(t, 0.6); // replay the entrance so the animation shows
@@ -362,7 +459,7 @@ export default function studio(root, { arg }) {
     try {
       audioCtx ||= new AudioContext();
       const buffer = await audioCtx.decodeAudioData(await file.arrayBuffer());
-      proj.audio = { buffer, name: file.name, offset: 0, volume: 1 };
+      proj.audio = { buffer, name: file.name, offset: 0, volume: 1, file };
       if (playing) startAudio();
       renderMusic();
     } catch { pop('That audio file couldn’t be read. Try an MP3, M4A or WAV.', { kind: 'err' }); }
@@ -447,6 +544,17 @@ export default function studio(root, { arg }) {
     d.mediaIds = [...(d.mediaIds || []), m.id];
     const words = proj.captions.map((c) => c.text.trim()).filter(Boolean);
     if (!d.text?.trim() && words.length) d.text = words[0];
+    // Shop the Look: carry the products (with their links) into the post's "Shop this post".
+    const prods = proj.template === 'shop' ? proj.slides.map((s) => s.product).filter((p) => p && (p.name || p.url)) : [];
+    if (prods.length) {
+      d.shop = { ...blankShop(), ...(d.shop || {}) };
+      for (const p of prods) {
+        const url = cleanUrl(p.url);
+        if (url && d.shop.products.some((x) => x.url === url)) continue;
+        d.shop.products.push({ name: p.name || '', brand: p.brand || '', price: p.price || '', url });
+      }
+      if (/comment/i.test(proj.shopCta)) { d.shop.cta = 'comment'; d.shop.keyword = (proj.shopCta.match(/"([^"]+)"/)?.[1] || 'SHOP').toUpperCase(); }
+    }
     state.draft = d;
     try { localStorage.setItem(DRAFT_KEY, JSON.stringify(d)); } catch {}
     pop('The video is in your post. Pick TikTok or Instagram and pull the lever.', { title: 'Added' });
@@ -480,16 +588,44 @@ export default function studio(root, { arg }) {
         sec('1. Photos', null, photosEl),
         sec('2. Template', 'what’s working on TikTok & Reels', tplEl),
         sec('3. Captions', 'add, style, drag, resize', capsEl),
-        sec('4. Music', 'optional', musicEl))));
+        sec('4. Music', 'optional', musicEl),
+        h('div.st-reset',
+          h('span', icon('check'), 'Your project saves in this browser as you work.'),
+          h('button.btn.sm.danger', { type: 'button', onclick: clearProject }, icon('trash'), 'Clear project')))));
 
-  if (arg === 'post') {
-    history.replaceState(null, '', '#/studio');
-    importFromPost(true);
+  async function clearProject() {
+    if (!(await confirmBox('Clear this video project?', 'This removes the photos, captions, products and song from the Video Studio in this browser. Your posts and any videos you exported or added to posts stay put.', 'Clear project'))) return;
+    pause();
+    proj.slides.forEach((s) => URL.revokeObjectURL(s.url));
+    Object.assign(proj, fresh());
+    selected = null; t = 0;
+    try { await idb.clearStudio(); await idb.set('studio', null); } catch {}
+    savedMeta = JSON.stringify(snapshot()); savedIds = new Set(); savedAudio = null;
+    sizeCanvas(); renderFmt(); renderMusic(); changed();
+    pop('Fresh start. The Video Studio is empty.', { title: 'Cleared' });
   }
-  renderFmt();
-  updatePlayBtn();
-  renderMusic();
-  changed();
+
+  const boot = () => {
+    selected = proj.captions.some((c) => c.id === selected) ? selected : proj.captions[0]?.id || null;
+    sizeCanvas();
+    renderFmt();
+    updatePlayBtn();
+    renderMusic();
+    changed();
+    if (arg === 'post' && restored) { // wait for the saved project, then add the post's photos to it
+      arg = null;
+      history.replaceState(null, '', '#/studio');
+      importFromPost(true);
+    }
+  };
+  boot();
+  let alive = true;
+  if (!restored) {
+    photosEl.replaceChildren(h('p.st-hint', 'Loading your saved project…'));
+    (restoring ||= restore()).then(() => alive && boot());
+  }
+  const saver = setInterval(persist, 1000);
+  window.addEventListener('pagehide', persist);
   raf = requestAnimationFrame(loop);
 
   const onKey = (e) => {
@@ -499,6 +635,10 @@ export default function studio(root, { arg }) {
   };
   document.addEventListener('keydown', onKey);
   return () => {
+    alive = false;
+    clearInterval(saver);
+    window.removeEventListener('pagehide', persist);
+    persist();
     cancelAnimationFrame(raf);
     exporting?.abort();
     stopAudio();
