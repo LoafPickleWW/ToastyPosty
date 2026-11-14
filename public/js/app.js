@@ -7,9 +7,11 @@ import queue from './views/rack.js';
 import feeds from './views/spread.js';
 import accounts from './views/pantry.js';
 import settings from './views/settings.js';
+import studio from './views/studio.js';
 
 const ROUTES = [
   { id: 'compose', label: 'Compose', icon: 'pen', view: compose },
+  { id: 'studio', label: 'Video', icon: 'film', view: studio },
   { id: 'queue', label: 'Queue', icon: 'queue', view: queue },
   { id: 'feeds', label: 'Feeds', icon: 'feeds', view: feeds },
   { id: 'accounts', label: 'Accounts', icon: 'accounts', view: accounts },

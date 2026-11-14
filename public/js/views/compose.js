@@ -449,7 +449,7 @@ export default function compose(root, { arg }) {
         h('div.composer-sec', h('div.sec-label', h('span', 'Post to'), state.accounts.length ? h('a', { href: '#/accounts' }, 'Manage') : null), accts),
         inspoSec,
         h('div.composer-sec', text, textMeta),
-        h('div.composer-sec', h('div.sec-label', h('span', 'Media')), mediaRow, fileInput),
+        h('div.composer-sec', h('div.sec-label', h('span', 'Media'), h('a', { href: '#/studio/post', title: 'Turn your photos into a TikTok / Reels video' }, 'Make a video from photos →')), mediaRow, fileInput),
         h('div.composer-sec', h('div.sec-label', h('span', 'AI assist'), state.providers?.text ? h('span.muted', { style: { fontSize: '12.5px' } }, state.providers.text === 'claude' ? 'Claude' : 'OpenAI') : null), aiSec),
         dock),
       previews));

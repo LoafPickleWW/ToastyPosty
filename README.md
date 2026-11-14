@@ -39,6 +39,7 @@ Limits on Vercel: each request can carry about 4MB, so big videos (TikTok, Reels
 | Page | What it does |
 |---|---|
 | **Compose** | Pick the accounts, write once, add photos or video. Each platform gets a live preview shaped like a slice of toast, with a toast icon that browns as you near the character limit. Your picked accounts load into a mint 1950s **toaster** as slices with each network's logo branded in. Turn the **browning dial** to choose when it posts, then pull the **lever**: the slices sink, the slots glow, and they pop back up toasted (or burnt, with the exact error). |
+| **Video** | A studio that turns photos into a vertical video for TikTok and Reels. Pick one of 9 templates based on what's working in short-form right now: **Photo Dump** (beat-synced cuts with a zoom punch), **Soft Memories** (slow zooms, crossfades, warm grain), **Before & After** (slider wipe between pairs), **Countdown** (a "top 5" that counts down to #1), **Carousel Swipe**, **Collage Reveal**, **Polaroid Pile**, **Vintage Reel** (film grade, sprockets, date stamp) and **Glitch Cut**. Add as many captions as you like with 12 fonts (including TikTok Sans), 7 styles (outline, TikTok box, subtitle, shadow, sticker, glow, plain), any colour, and animations like word-by-word and karaoke highlight. Drag captions on the video to move them, drag the corner to resize, and time each one to the whole video or to certain photos. Add a song, export a 1080p MP4 (WebM where a browser can't make MP4), then download it or drop it straight into a post. Everything renders in your browser. |
 | **Queue** | The toast rack. Each day of the week is a slice that browns with how many posts it holds. Posts are grouped by day: Scheduled, Drafts, Posted, Failed. Failed posts show the platform's exact error, and **Retry failed** only re-sends to the accounts that failed. |
 | **Feeds** | Columns side by side, from two kinds of sources. **From the web** (free, no keys): track a topic by keywords (searches Google News, Hacker News and Reddit at once), or follow any RSS/Atom link, a Medium writer, Substack, YouTube channel, subreddit, public Bluesky or Mastodon profile, GitHub releases, or Hacker News. **From your accounts**: your timelines, searches and subreddits. Any column can be filtered to posts that mention certain words, and matches are highlighted. Columns refresh every 5 minutes. Hit **Toast this** on any item to start a post about it, and with an AI key, **Write a post about this** drafts one in your voice with the link included. |
 | **Accounts** | One card per network. Connect as many accounts as you like, and every card has a **How to get keys** guide. |
@@ -109,11 +110,12 @@ server/
 public/
   index.html        App shell + SEO metadata
   about.html        Crawlable About page + FAQ
-  css/              toast.css (base) · toaster.css (Chrome & Crust identity)
+  css/              toast.css (base) · toaster.css (Chrome & Crust identity) · studio.css (Video)
   js/
     db.js           IndexedDB storage
     local-api.js    The in-browser "kitchen": data, scheduling, publishing
-    views/          compose · rack · spread · pantry · settings
+    studio/         engine.js: video templates, captions and MP4 export (canvas + MediaRecorder)
+    views/          compose · studio · rack · spread · pantry · settings
 scripts/
   site.mjs          Vercel build: copy public/ to dist/ and fill in SITE_URL
   brand.mjs         Render share image + icons from the logo
