@@ -1,12 +1,12 @@
 // Video Studio: turn a handful of photos into a TikTok / Reels video, right in the browser.
 // Pick a template, add captions, drop in a song, export an MP4 and add it to a post.
-import { h, icon, pop, modal, busy, confirmBox } from '../ui.js';
+import { h, icon, pop, modal, busy, confirmBox, pastedImages } from '../ui.js';
 import { state, api, media, mediaUrl } from '../api.js';
 import {
   FORMATS, FONTS, STYLES, ANIMS, COLORS, LOOKS, TEMPLATE_LIST, TEMPLATES,
-  renderFrame, timeline, captionWindow, paceOf, loadSlide, ensureFonts, recordVideo, pickMime, newCaption, fontCss,
+  renderFrame, timeline, captionWindow, CARD_SCALE, paceOf, loadSlide, ensureFonts, recordVideo, pickMime, newCaption, fontCss,
 } from '../studio/engine.js';
-import { blankShop, cleanUrl, isAmazon } from '../shop.js';
+import { blankShop, cleanUrl, isAmazon, fillFromLink } from '../shop.js';
 import * as idb from '../db.js';
 
 const DRAFT_KEY = 'toastyposty.draft';
@@ -14,12 +14,12 @@ const uid = () => Math.random().toString(36).slice(2, 10);
 const PREVIEW_SCALE = 2 / 3; // preview canvas draws at 720px wide; the export is full 1080
 
 // The project lives for this browser session, so hopping to Compose and back keeps your work.
-const fresh = () => ({ template: 'dump', format: '9:16', fit: 'fill', pace: {}, slides: [], captions: [], audio: null, shopCta: '🔗 Link in bio' });
+const fresh = () => ({ template: 'dump', format: '9:16', fit: 'fill', pace: {}, slides: [], captions: [], audio: null, shopCta: '🔗 Link in bio', shopCard: null });
 const proj = fresh();
 
 // ---------- Saved in this browser (IndexedDB): survives refreshes until you clear it ----------
 const snapshot = () => ({
-  template: proj.template, format: proj.format, fit: proj.fit, pace: proj.pace, captions: proj.captions, shopCta: proj.shopCta,
+  template: proj.template, format: proj.format, fit: proj.fit, pace: proj.pace, captions: proj.captions, shopCta: proj.shopCta, shopCard: proj.shopCard,
   slides: proj.slides.map((s) => ({ id: s.id, mediaId: s.mediaId || null, product: s.product || null })),
   audio: proj.audio ? { name: proj.audio.name, offset: proj.audio.offset, volume: proj.audio.volume } : null,
 });
@@ -171,19 +171,39 @@ export default function studio(root, { arg }) {
     const r = canvas.getBoundingClientRect();
     return [((e.clientX - r.left) * canvas.width) / r.width, ((e.clientY - r.top) * canvas.height) / r.height];
   };
+  // Anything you can drag: captions, and the Shop the Look product card ("__card").
+  // Each has a centre (x, y as 0..1 of the frame) and a size.
+  const CARD = '__card';
+  function movable(id) {
+    if (id === CARD) {
+      const b = boxes[CARD];
+      if (!b) return null;
+      // First drag: start from wherever the card is drawn right now.
+      proj.shopCard ||= { x: (b.x + b.w / 2) / canvas.width, y: (b.y + b.h / 2) / canvas.height, scale: 1 };
+      const c = proj.shopCard;
+      return { obj: c, get size() { return c.scale ?? 1; }, set size(v) { c.scale = Math.round(Math.min(CARD_SCALE[1], Math.max(CARD_SCALE[0], v)) * 100) / 100; } };
+    }
+    const c = proj.captions.find((cc) => cc.id === id);
+    return c && { obj: c, get size() { return c.size; }, set size(v) { c.size = Math.round(Math.min(260, Math.max(24, v))); } };
+  }
+  const inBox = (b, x, y) => b && x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h;
+  const afterEdit = (id) => (id === CARD ? renderPhotos() : renderCaptions());
   canvas.addEventListener('pointerdown', (e) => {
     const [x, y] = toCanvas(e);
     const hs = 30 * (canvas.width / 1080);
     const sb = selected && boxes[selected];
-    const c = proj.captions.find((cc) => cc.id === selected);
-    if (sb && c && Math.hypot(x - (sb.x + sb.w), y - (sb.y + sb.h)) < hs * 1.6) {
-      const cx = c.x * canvas.width, cy = c.y * canvas.height;
-      drag = { id: c.id, mode: 'size', d0: Math.max(10, Math.hypot(x - cx, y - cy)), s0: c.size };
+    if (sb && Math.hypot(x - (sb.x + sb.w), y - (sb.y + sb.h)) < hs * 1.6) {
+      const m = movable(selected);
+      const cx = m.obj.x * canvas.width, cy = m.obj.y * canvas.height;
+      drag = { id: selected, mode: 'size', d0: Math.max(10, Math.hypot(x - cx, y - cy)), s0: m.size };
     } else {
-      const hit = [...proj.captions].reverse().find((cc) => { const b = boxes[cc.id]; return b && x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h; });
-      if (!hit) { if (selected) { selected = null; renderCaptions(); dirty = true; } return; }
-      if (selected !== hit.id) { selected = hit.id; renderCaptions(); }
-      drag = { id: hit.id, mode: 'move', ox: x - hit.x * canvas.width, oy: y - hit.y * canvas.height };
+      // Captions sit on top of the card, so they win.
+      const capHit = [...proj.captions].reverse().find((cc) => inBox(boxes[cc.id], x, y));
+      const id = capHit ? capHit.id : inBox(boxes[CARD], x, y) ? CARD : null;
+      if (!id) { if (selected) { selected = null; renderCaptions(); dirty = true; } return; }
+      if (selected !== id) { selected = id; renderCaptions(); }
+      const m = movable(id);
+      drag = { id, mode: 'move', ox: x - m.obj.x * canvas.width, oy: y - m.obj.y * canvas.height };
     }
     try { canvas.setPointerCapture(e.pointerId); } catch {}
     e.preventDefault();
@@ -192,12 +212,13 @@ export default function studio(root, { arg }) {
   canvas.addEventListener('pointermove', (e) => {
     if (!drag) {
       const [x, y] = toCanvas(e);
-      const over = Object.values(boxes).some((b) => x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h);
+      const over = Object.values(boxes).some((b) => inBox(b, x, y));
       canvas.style.cursor = over ? 'move' : 'default';
       return;
     }
-    const c = proj.captions.find((cc) => cc.id === drag.id);
-    if (!c) return;
+    const m = movable(drag.id);
+    if (!m) return;
+    const c = m.obj;
     const [x, y] = toCanvas(e);
     if (drag.mode === 'move') {
       c.x = Math.min(0.95, Math.max(0.05, (x - drag.ox) / canvas.width));
@@ -206,11 +227,11 @@ export default function studio(root, { arg }) {
       if (Math.abs(c.x - 0.5) < 0.02) c.x = 0.5;
     } else {
       const cx = c.x * canvas.width, cy = c.y * canvas.height;
-      c.size = Math.round(Math.min(260, Math.max(24, (drag.s0 * Math.hypot(x - cx, y - cy)) / drag.d0)));
+      m.size = (drag.s0 * Math.hypot(x - cx, y - cy)) / drag.d0;
     }
     dirty = true;
   });
-  const endDrag = () => { if (drag) { drag = null; dirty = true; renderCaptions(); } };
+  const endDrag = () => { if (drag) { const id = drag.id; drag = null; dirty = true; afterEdit(id); } };
   canvas.addEventListener('pointerup', endDrag);
   canvas.addEventListener('pointercancel', endDrag);
 
@@ -228,6 +249,21 @@ export default function studio(root, { arg }) {
     fileIn.value = '';
     changed();
   }
+  // Swap one slide's photo (keeps its product details, captions and position in the video).
+  async function replacePhoto(i, file) {
+    const old = proj.slides[i];
+    if (!old || !file?.type.startsWith('image/')) return;
+    try {
+      const s = await loadSlide(file, uid());
+      s.blob = file;
+      if (old.product) s.product = old.product;
+      proj.slides[i] = s;
+      URL.revokeObjectURL(old.url);
+      changed();
+      pop(`Photo ${i + 1} updated.`, { title: 'Swapped' });
+    } catch { pop(`Couldn’t open that image.`, { kind: 'err' }); }
+  }
+  const swapIn = h('input', { type: 'file', accept: 'image/*', hidden: true, onchange: (e) => { const i = Number(swapIn.dataset.i); if (e.target.files[0]) replacePhoto(i, e.target.files[0]); swapIn.value = ''; } });
   const postImages = () => (state.draft?.mediaIds || loadDraft()?.mediaIds || []).map(media).filter((m) => m?.mime.startsWith('image/'));
   async function importFromPost(quiet) {
     const imgs = postImages().filter((m) => !proj.slides.some((s) => s.mediaId === m.id));
@@ -273,7 +309,7 @@ export default function studio(root, { arg }) {
       ondragover: (e) => { if (dragIdx === null) { e.preventDefault(); drop.classList.add('over'); } },
       ondragleave: () => drop.classList.remove('over'),
       ondrop: (e) => { e.preventDefault(); drop.classList.remove('over'); if (e.dataTransfer.files.length) addFiles(e.dataTransfer.files); },
-    }, h('span', icon('image'), n ? 'Add more' : 'Add photos'));
+    }, h('span', icon('image'), n ? 'Add more' : 'Add photos', h('small.drop-paste', 'or paste')));
     const fromPost = postImages().filter((m) => !proj.slides.some((s) => s.mediaId === m.id)).length;
     const hint = proj.template === 'beforeafter' ? 'Photos pair up in order: 1A is the before, 1B the after.'
       : proj.template === 'countdown' ? 'The first photo is the highest number; the last one is #1.'
@@ -297,30 +333,91 @@ export default function studio(root, { arg }) {
 
   // Shop the Look: one product per photo, plus the end-card call to action.
   const draftProducts = () => (state.draft?.shop?.products || loadDraft()?.shop?.products || []).filter((p) => p.name || p.url);
+  // A slide for a product: its store photo (through the relay), or a clean name card when there isn't one.
+  async function productSlide(p) {
+    let blob = null;
+    if (p.image) blob = await api('/api/unfurl/image', { method: 'POST', body: { url: p.image } }).catch(() => null);
+    if (!blob) {
+      const c = document.createElement('canvas');
+      c.width = 900; c.height = 1200;
+      const x = c.getContext('2d');
+      const g = x.createLinearGradient(0, 0, 900, 1200);
+      g.addColorStop(0, '#F8F2E6'); g.addColorStop(1, '#E9DCC4');
+      x.fillStyle = g; x.fillRect(0, 0, 900, 1200);
+      x.fillStyle = '#24170F'; x.textAlign = 'center';
+      x.font = fontCss('montserrat', 64);
+      let store = '';
+      try { store = new URL(p.url).hostname.replace(/^www\./, ''); } catch {}
+      const words = (p.name || store || 'Your product').split(/\s+/); let line = '', y = 520;
+      for (const w of words) { if (x.measureText(line + w).width > 760 && line) { x.fillText(line.trim(), 450, y); y += 80; line = ''; } line += w + ' '; }
+      x.fillText(line.trim(), 450, y);
+      if (p.brand) { x.font = '500 40px "DM Mono", monospace'; x.fillStyle = '#8F7B6A'; x.fillText(p.brand.toUpperCase(), 450, 420); }
+      blob = await new Promise((r) => c.toBlob(r, 'image/jpeg', 0.9));
+    }
+    const s = await loadSlide(blob, uid());
+    s.blob = blob;
+    s.product = { name: p.name || '', brand: p.brand || '', price: p.price || '', url: p.url || '', image: p.image || '' };
+    return s;
+  }
+  async function addFromLinks(text) {
+    const links = [...new Set(String(text).split(/[\s,]+/).map(cleanUrl).filter(Boolean))].slice(0, 15);
+    if (!links.length) return pop('Paste one or more product links, one per line.', { kind: 'err' });
+    const missed = [];
+    if (!proj.slides.length) proj.fit = 'fit'; // store photos are square shots on white: show them whole
+    for (const url of links) {
+      const p = { name: '', brand: '', price: '', url };
+      try { const r = await fillFromLink(p, api); if (r.note) missed.push(`${r.store}: name only (the store blocks previews)`); } catch (e) { missed.push(`${new URL(url).hostname.replace(/^www\./, '')}: ${e.message}`); }
+      try { proj.slides.push(await productSlide(p)); } catch {}
+      changed();
+    }
+    pop(missed.length ? `Added ${links.length}. Fill in the rest yourself for: ${missed.join(' · ')}` : `Added ${links.length} product${links.length === 1 ? '' : 's'} with their details.`, { title: missed.length ? 'Mostly done' : 'Products added', kind: missed.length ? 'err' : 'ok' });
+  }
   function productsEditor() {
     const n = proj.slides.length;
     const ctaIn = h('input.input', { value: proj.shopCta, maxlength: 40, 'aria-label': 'End card call to action', oninput: (e) => { proj.shopCta = e.target.value; dirty = true; } });
     const fromPost = draftProducts();
+    const cardOut = h('output', Math.round((proj.shopCard?.scale ?? 1) * 100) + '%');
+    const cardSize = h('input', { type: 'range', min: CARD_SCALE[0], max: CARD_SCALE[1], step: 0.01, value: proj.shopCard?.scale ?? 1, 'aria-label': 'Product card size',
+      oninput: (e) => { proj.shopCard = { ...(proj.shopCard || {}), scale: Number(e.target.value) }; cardOut.textContent = Math.round(proj.shopCard.scale * 100) + '%'; dirty = true; } });
+    const linksIn = h('textarea.input', { rows: 2, placeholder: 'Paste product links here (LTK, ShopMy, any store), one per line', 'aria-label': 'Product links' });
     const rows = proj.slides.map((s, i) => {
       const p = (s.product ||= { name: '', brand: '', price: '', url: '' });
+      const read = async () => {
+        if (!cleanUrl(p.url) || p._looked === p.url) return;
+        p._looked = p.url;
+        try { const r = await fillFromLink(p, api); if (r.filled.length) { changed(); pop(`Filled in ${r.filled.join(', ')} from ${r.store}.`, { title: 'Got it' }); } }
+        catch (e) { pop(e.message, { kind: 'err', title: 'Couldn’t read that link' }); }
+      };
       const set = (k) => (e) => { p[k] = e.target.value; dirty = true; if (k === 'url') priceIn.disabled = isAmazon(cleanUrl(p.url)); };
       const priceIn = h('input.input', { value: p.price, placeholder: 'Price', disabled: isAmazon(p.url), title: isAmazon(p.url) ? 'Amazon doesn’t allow prices you type in yourself' : '', 'aria-label': `Price ${i + 1}`, oninput: set('price') });
-      return h('div.st-prod',
-        h('img', { src: s.url, alt: '' }), h('span.st-n', String(i + 1)),
+      return h('div.st-prod', { 'data-i': i },
+        h('button.st-prod-photo', { type: 'button', title: 'Change this photo: click to pick one, or click here and paste (Ctrl/Cmd+V)', 'aria-label': `Change photo ${i + 1}`, onclick: () => { swapIn.dataset.i = i; swapIn.click(); } },
+          h('img', { src: s.url, alt: '' }), h('span.st-swap', 'Change')),
+        h('span.st-n', String(i + 1)),
         h('div.st-prod-f',
           h('input.input', { value: p.name, placeholder: 'Product name', 'aria-label': `Product ${i + 1} name`, oninput: set('name') }),
           h('div.st-prod-row',
             h('input.input', { value: p.brand, placeholder: 'Brand', 'aria-label': `Brand ${i + 1}`, oninput: set('brand') }),
             priceIn),
-          h('input.input', { value: p.url, placeholder: 'Affiliate link (goes into your post)', inputmode: 'url', 'aria-label': `Link ${i + 1}`, oninput: set('url') })));
+          h('input.input', { value: p.url, placeholder: 'Affiliate link (goes into your post)', inputmode: 'url', 'aria-label': `Link ${i + 1}`, oninput: set('url'),
+            onpaste: (e) => setTimeout(() => { p.url = cleanUrl(e.target.value) || e.target.value.trim(); read(); }, 0), onchange: read })));
     });
     return h('div.st-prods',
-      h('div.st-prods-head', h('b', 'Products'), h('span', 'One per photo. Shown on a card over each photo.')),
-      n ? h('div.st-prod-list', rows) : h('p.st-hint', 'Add a photo of each product (or each outfit piece) above, then name them here.'),
-      fromPost.length && n ? h('button.btn.sm.butter', { type: 'button', onclick: () => {
-        proj.slides.forEach((s, i) => { if (fromPost[i] && !(s.product?.name || s.product?.url)) s.product = { name: '', brand: '', price: '', ...fromPost[i] }; });
+      h('div.st-prods-head', h('b', 'Products'), h('span', 'One per photo. Shown on a card over each photo. Store blocked the photo? Click a product’s photo, then paste or pick your own.')),
+      swapIn,
+      h('div.st-linkadd', linksIn,
+        h('button.btn.sm.butter', { type: 'button', onclick: (e) => busy(e.currentTarget, () => addFromLinks(linksIn.value), 'Reading links…') }, icon('sparkle'), 'Add from links'),
+        h('small', 'Each link becomes a photo with its name, brand and price filled in. Your link stays the one that gets posted, so your commission is tracked.')),
+      n ? h('div.st-prod-list', rows) : '',
+      fromPost.length ? h('button.btn.sm', { type: 'button', onclick: (e) => busy(e.currentTarget, async () => {
+        if (!n) { for (const p of fromPost) proj.slides.push(await productSlide(p)); }
+        else proj.slides.forEach((s, i) => { if (fromPost[i] && !(s.product?.name || s.product?.url)) s.product = { name: '', brand: '', price: '', ...fromPost[i] }; });
         changed();
-      } }, icon('tag'), `Fill in from my post’s ${fromPost.length} product${fromPost.length === 1 ? '' : 's'}`) : '',
+      }, 'Loading…') }, icon('tag'), n ? `Fill in from my post’s ${fromPost.length} product${fromPost.length === 1 ? '' : 's'}` : `Make slides from my post’s ${fromPost.length} product${fromPost.length === 1 ? '' : 's'}`) : '',
+      h('div.st-field.st-cardpos', h('span', 'Product card size ', cardOut),
+        h('div.st-row', cardSize,
+          h('button.btn.sm.quiet', { type: 'button', disabled: !proj.shopCard, onclick: () => { proj.shopCard = null; if (selected === '__card') selected = null; changed(); } }, 'Reset position')),
+        h('small', 'Or drag the card on the video to move it, and drag its yellow corner dot to resize.')),
       h('div.st-field.st-cta', h('span', 'End card says'), ctaIn,
         h('div.st-looks', ['🔗 Link in bio', '💬 Comment "SHOP" for links', '🛍️ Shop my LTK', '🛒 Links on my storefront'].map((t) =>
           h('button', { type: 'button', onclick: () => { proj.shopCta = t; ctaIn.value = t; dirty = true; } }, t)))));
@@ -634,7 +731,20 @@ export default function studio(root, { arg }) {
     if ((e.key === 'Delete' || e.key === 'Backspace') && selected && (e.target === canvas || e.target === document.body)) { proj.captions = proj.captions.filter((c) => c.id !== selected); selected = null; renderCaptions(); dirty = true; }
   };
   document.addEventListener('keydown', onKey);
+  // Paste images (Ctrl/Cmd+V). While a product row is focused, the image replaces that product's photo;
+  // anywhere else on the page, pasted images become new slides. Text pastes are untouched.
+  const onPaste = (e) => {
+    if (document.querySelector('.scrim')) return;
+    const imgs = pastedImages(e);
+    if (!imgs.length) return;
+    e.preventDefault();
+    const row = document.activeElement?.closest?.('.st-prod');
+    if (row && proj.slides[Number(row.dataset.i)]) return void replacePhoto(Number(row.dataset.i), imgs[0]);
+    addFiles(imgs).then(() => pop(`Pasted ${imgs.length === 1 ? 'a photo' : imgs.length + ' photos'} into the video.`, { title: 'Added' }));
+  };
+  document.addEventListener('paste', onPaste);
   return () => {
+    document.removeEventListener('paste', onPaste);
     alive = false;
     clearInterval(saver);
     window.removeEventListener('pagehide', persist);

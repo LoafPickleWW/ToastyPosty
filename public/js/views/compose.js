@@ -1,8 +1,8 @@
 // Compose: write once, preview per platform, post now or schedule.
-import { h, icon, pb, ava, pop, modal, busy, toastIcon, toLocalInput, fmtWhen, fmtTime } from '../ui.js';
+import { h, icon, pb, ava, pop, modal, busy, toastIcon, toLocalInput, fmtWhen, fmtTime, pastedImages } from '../ui.js';
 import { BRAND_PATHS } from '../brands.js';
 import { state, api, load, platform, account, media, mediaUrl } from '../api.js';
-import { blankShop, finalText, networkOf, networkName, isAmazon, cleanUrl, CTAS, CLICKABLE, affiliateLinksIn } from '../shop.js';
+import { blankShop, finalText, networkOf, networkName, isAmazon, cleanUrl, CTAS, CLICKABLE, affiliateLinksIn, fillFromLink } from '../shop.js';
 
 const DRAFT_KEY = 'toastyposty.draft';
 const blank = () => ({ id: null, text: '', overrides: {}, mediaIds: [], targets: [], scheduledAt: null, shop: blankShop() });
@@ -86,7 +86,7 @@ export default function compose(root, { arg }) {
       ondragover: (e) => { e.preventDefault(); drop.classList.add('over'); },
       ondragleave: () => drop.classList.remove('over'),
       ondrop: (e) => { e.preventDefault(); drop.classList.remove('over'); addFiles(e.dataTransfer.files); },
-    }, h('span', icon('image'), d.mediaIds.length ? 'Add more' : 'Add photo or video'));
+    }, h('span', icon('image'), d.mediaIds.length ? 'Add more' : 'Add photo or video', h('small.drop-paste', 'or paste one')));
     mediaRow.replaceChildren(...thumbs, drop);
   }
   async function addFiles(files) {
@@ -148,12 +148,29 @@ export default function compose(root, { arg }) {
       const amazon = isAmazon(p.url);
       const set = (k) => (e) => { p[k] = e.target.value; touchShop(); };
       const badge = h('span.net' + (net ? '.on' : ''), net ? networkName(net) : 'Link');
+      const status = h('small.prod-status', p._status || '');
+      // Paste a link: read the product's name, brand, price and photo from the store page.
+      const lookup = async (force) => {
+        if (!cleanUrl(p.url) || (!force && p._looked === p.url)) return;
+        p._looked = p.url;
+        badge.textContent = 'Reading…';
+        status.textContent = '';
+        try {
+          const r = await fillFromLink(p, api);
+          p._status = r.note ? (r.filled.length ? `Filled in the ${r.filled.join(', ')}. ` : '') + r.note : r.filled.length ? `Filled in ${r.filled.join(', ')} from ${r.store}.` + (r.amazon ? ' Amazon: name only (their rules).' : '') : r.amazon ? 'Amazon: add the name yourself if it’s missing (no prices or photos allowed).' : 'Nothing new to fill in.';
+        } catch (err) {
+          p._status = err.message;
+        }
+        renderShop(); touchShop();
+      };
       return h('div.prod',
-        h('span.prod-n', String(i + 1)),
+        p.image ? h('img.prod-img', { src: p.image, alt: '', referrerpolicy: 'no-referrer', loading: 'lazy', onerror: (e) => e.target.replaceWith(h('span.prod-n', String(i + 1))) }) : h('span.prod-n', String(i + 1)),
         h('div.prod-f',
           h('input.input', { value: p.url, placeholder: 'Paste your product link (LTK, ShopMy, Amazon…)', 'aria-label': `Link for product ${i + 1}`, inputmode: 'url',
             oninput: (e) => { p.url = e.target.value.trim(); const n = networkOf(cleanUrl(p.url)); badge.textContent = n ? networkName(n) : 'Link'; badge.classList.toggle('on', !!n); touchShop(); },
-            onchange: (e) => { p.url = cleanUrl(e.target.value) || e.target.value.trim(); e.target.value = p.url; renderShop(); touchShop(); } }),
+            onpaste: () => setTimeout(() => { p.url = cleanUrl(p.url) || p.url; lookup(); }, 0),
+            onchange: (e) => { p.url = cleanUrl(e.target.value) || e.target.value.trim(); e.target.value = p.url; touchShop(); lookup(); } }),
+          status,
           h('div.prod-row',
             h('input.input', { value: p.name, placeholder: 'What is it? e.g. Linen button-up', 'aria-label': `Name of product ${i + 1}`, oninput: set('name') }),
             h('input.input.prod-brand', { value: p.brand || '', placeholder: 'Brand', 'aria-label': `Brand of product ${i + 1}`, oninput: set('brand') }),
@@ -161,6 +178,7 @@ export default function compose(root, { arg }) {
               ? h('span.prod-noprice', { title: 'Amazon’s Associates rules don’t allow prices you type in yourself, because they go out of date.' }, 'no price (Amazon)')
               : h('input.input.prod-price', { value: p.price || '', placeholder: 'Price', 'aria-label': `Price of product ${i + 1}`, oninput: set('price') }))),
         h('div.prod-side', badge,
+          cleanUrl(p.url) ? h('button.btn.quiet.icon', { type: 'button', 'aria-label': `Read product ${i + 1} details from the link again`, title: 'Read the details from the link again', onclick: () => { p.name = ''; p.brand = ''; p.price = ''; p.image = ''; lookup(true); } }, icon('refresh')) : null,
           h('button.btn.quiet.icon.danger', { type: 'button', 'aria-label': `Remove product ${i + 1}`, onclick: () => { sh.products.splice(i, 1); renderShop(); touchShop(); } }, icon('trash'))));
     });
     const recent = recentProducts();
@@ -545,7 +563,16 @@ This post sells these products through my affiliate links: ${prods.map((p) => [p
   renderPreviews();
   renderDock();
   updateMeta();
-  return () => document.removeEventListener('click', onDocClick);
+  // Paste an image anywhere on the page (Ctrl/Cmd+V) and it's added to the post. Text pastes are untouched.
+  const onPaste = (e) => {
+    if (document.querySelector('.scrim')) return; // a dialog is open
+    const imgs = pastedImages(e);
+    if (!imgs.length) return;
+    e.preventDefault();
+    addFiles(imgs).then(() => pop(`Pasted ${imgs.length === 1 ? 'an image' : imgs.length + ' images'} into your post.`, { title: 'Added' }));
+  };
+  document.addEventListener('paste', onPaste);
+  return () => { document.removeEventListener('click', onDocClick); document.removeEventListener('paste', onPaste); };
 }
 
 // Shrink big images in the browser so they fit every platform (Bluesky ~1MB, Instagram wants JPEG).

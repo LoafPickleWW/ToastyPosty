@@ -510,3 +510,9 @@ code { font: 500 0.88em var(--mono); background: var(--sunken); padding: 1px 6px
   .prod-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
   .prod-row > :first-child { grid-column: 1 / -1; }
 }
+.prod-img { width: 44px; height: 56px; border-radius: 8px; object-fit: cover; background: #fff; border: 1px solid var(--line); }
+.prod:has(.prod-img) { grid-template-columns: 44px minmax(0, 1fr) auto; }
+.prod-status { font-size: 12px; color: var(--ink-3); min-height: 0; }
+.prod-status:empty { display: none; }
+@media (max-width: 560px) { .prod:has(.prod-img) { grid-template-columns: 44px minmax(0, 1fr) auto; } }
+.drop-paste { display: block; font-weight: 500; font-size: 11px; opacity: 0.75; margin-top: 2px; }

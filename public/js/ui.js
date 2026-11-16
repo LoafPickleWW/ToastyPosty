@@ -198,3 +198,15 @@ export const toLocalInput = (d) => new Date(d.getTime() - d.getTimezoneOffset() 
 
 export const STATUS_WORD = { draft: 'Draft', scheduled: 'Scheduled', queued: 'Posting', publishing: 'Posting', published: 'Posted', partial: 'Partly posted', failed: 'Failed' };
 export const pill = (status) => h('span.pill.' + status, STATUS_WORD[status] || status);
+
+// Images on the clipboard (a screenshot, or "Copy image" in a browser). Text pastes return [] and behave normally.
+export function pastedImages(e) {
+  const items = [...(e.clipboardData?.items || [])].filter((it) => it.kind === 'file' && it.type.startsWith('image/'));
+  const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+  return items.map((it, i) => {
+    const f = it.getAsFile();
+    if (!f) return null;
+    const ext = (f.type.split('/')[1] || 'png').replace('jpeg', 'jpg').replace(/\+.*/, '');
+    return new File([f], `pasted-${stamp}${i ? '-' + i : ''}.${ext}`, { type: f.type });
+  }).filter(Boolean);
+}

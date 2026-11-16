@@ -101,6 +101,16 @@ async function importLegacy() {
 
 export const mediaUrl = (id) => urls.get(id) || '';
 
+// A product photo, fetched through the relay (browsers can't read other sites' pixels for the video canvas).
+async function productImage(url) {
+  const headers = { 'Content-Type': 'application/json' };
+  const code = localStorage.getItem(CODE_KEY);
+  if (code) headers['x-toasty-code'] = code;
+  const res = await fetch('/api/unfurl/image', { method: 'POST', headers, body: JSON.stringify({ url }) });
+  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Couldn’t load that product photo.');
+  return res.blob();
+}
+
 // ---------- helpers ----------
 const mask = (v) => (!v ? '' : String(v).length <= 8 ? '••••' : '••••' + String(v).slice(-4));
 const platformMeta = (id) => config.platforms.find((p) => p.id === id);
@@ -265,6 +275,9 @@ export async function handle(path, { method = 'GET', body = {}, form } = {}) {
   const seg = p.split('/').filter(Boolean).slice(1); // drop "api"
   const [res, id, action] = seg;
   const M = method.toUpperCase();
+
+  // Product link previews: name / brand / price / photo from an affiliate link.
+  if (res === 'unfurl') return id === 'image' ? productImage(body.url) : net('/api/unfurl', { body: { url: body.url } });
 
   if (res === 'state') {
     return {

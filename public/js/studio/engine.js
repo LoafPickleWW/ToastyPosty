@@ -253,6 +253,13 @@ const SAMPLE_PRODUCTS = [
   { name: 'Leather slides', brand: 'Steve Madden', price: '70' },
   { name: 'Cat-eye sunnies', brand: 'Quay', price: '55' },
 ];
+export const CARD_SCALE = [0.45, 1.12];
+export function cardPos(e) {
+  const tall = e.H / e.W > 1.6, ch = 190 * e.u;
+  const d = { x: 0.5, y: tall ? 0.6 + ch / 2 / e.H : 1 - (ch / 2 + 70 * e.u) / e.H, scale: 1 };
+  const c = e.card || {};
+  return { x: c.x ?? d.x, y: c.y ?? d.y, scale: clamp(c.scale ?? d.scale, ...CARD_SCALE) };
+}
 const productFor = (s, i) => s.product || (String(s.id).startsWith('sample') ? SAMPLE_PRODUCTS[i % SAMPLE_PRODUCTS.length] : {});
 
 function shopEnd(ctx, e, lt) {
@@ -326,14 +333,18 @@ const LIST = [
       full(ctx, s, e, 1.02 + 0.06 * clamp(local / e.per));
       if (i > 0 && local < tr) { ctx.globalAlpha = 1 - local / tr; full(ctx, prev, e, 1.08); ctx.globalAlpha = 1; }
       const p = productFor(s, i);
-      const k = clamp((local - 0.2) / 0.45);
+      const k = e.settled ? 1 : clamp((local - 0.2) / 0.45);
       if (k <= 0) return;
-      const tall = e.H / e.W > 1.6;
-      const cw = e.W - 120 * u, ch = 190 * u, cx = 60 * u;
-      const cy = tall ? e.H * 0.6 : e.H - ch - 70 * u;
+      // Where the card sits: dragged/resized in the Studio (proj.shopCard), or the default spot.
+      const cw = e.W - 120 * u, ch = 190 * u;
+      const pos = cardPos(e);
+      const sc = pos.scale, mx = pos.x * e.W, my = pos.y * e.H;
+      e.out.card = { x: mx - (cw * sc) / 2, y: my - (ch * sc) / 2, w: cw * sc, h: ch * sc };
+      const cx = -cw / 2, cy = -ch / 2;
       ctx.save();
       ctx.globalAlpha = clamp(k * 2.5);
-      ctx.translate(0, (1 - back(k)) * 140 * u);
+      ctx.translate(mx, my + (1 - back(k)) * 140 * u);
+      ctx.scale(sc, sc);
       ctx.shadowColor = 'rgba(0,0,0,0.35)'; ctx.shadowBlur = 40 * u; ctx.shadowOffsetY = 14 * u;
       ctx.fillStyle = '#FFFFFF';
       rr(ctx, cx, cy, cw, ch, 34 * u); ctx.fill();
@@ -822,13 +833,14 @@ export function renderFrame(ctx, proj, t, { template, captions = true, selected,
   const W = ctx.canvas.width, H = ctx.canvas.height;
   const id = template || proj.template;
   const tl = timeline(proj, id);
-  const e = { W, H, u: W / 1080, slides: tl.slides, n: tl.n, per: tl.per, plan: tl, total: tl.total, fit: proj.fit, cta: proj.shopCta, settled, t: clamp(t, 0, tl.total - 1e-4) };
+  const e = { W, H, u: W / 1080, slides: tl.slides, n: tl.n, per: tl.per, plan: tl, total: tl.total, fit: proj.fit, cta: proj.shopCta, card: proj.shopCard, out: {}, settled, t: clamp(t, 0, tl.total - 1e-4) };
   ctx.save();
   ctx.fillStyle = '#000';
   ctx.fillRect(0, 0, W, H);
   TEMPLATES[id].draw(ctx, e);
   ctx.restore();
   const boxes = {};
+  if (e.out.card) boxes.__card = e.out.card; // Shop the Look product card: draggable like a caption
   if (!captions) return boxes;
   for (const c of proj.captions) {
     const [a, b] = captionWindow(c, tl);

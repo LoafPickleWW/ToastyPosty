@@ -97,3 +97,21 @@ export function finalText(text, pid, shop, settings = {}) {
 export function affiliateLinksIn(text) {
   return (String(text).match(/https?:\/\/\S+/g) || []).filter((u) => ['amazon', 'ltk', 'shopmy', 'tiktokshop'].includes(networkOf(u)) || /[?&](tag|aff|affiliate|ref|irclickid|clickid)=/i.test(u));
 }
+
+// Paste a link → fill in the product. Only fills fields that are still empty, and always keeps YOUR link
+// (the referral link) as the product link; the store address it redirected to is only used for reading details.
+// Amazon: name only. Their Associates rules don't allow typed or scraped prices, and product photos have to
+// come through Amazon's own tools.
+export async function fillFromLink(p, api) {
+  const url = cleanUrl(p.url);
+  if (!url) throw new Error('Paste a full link first.');
+  const r = await api('/api/unfurl', { method: 'POST', body: { url } });
+  const amazon = isAmazon(url) || isAmazon(r.finalUrl);
+  const filled = [];
+  if (!p.name?.trim() && r.name) { p.name = r.name; filled.push('name'); }
+  if (!p.brand?.trim() && r.brand) { p.brand = r.brand; filled.push('brand'); }
+  if (!amazon && !String(p.price || '').trim() && r.price) { p.price = r.price; filled.push('price'); }
+  if (!amazon && !p.image && r.image) { p.image = r.image; filled.push('photo'); }
+  p.store = r.site || '';
+  return { filled, amazon, store: r.site, note: r.note || '' };
+}

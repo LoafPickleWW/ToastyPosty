@@ -135,3 +135,17 @@
 .st-reset { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; padding: 12px 4px 0; border-top: 1px dashed var(--line-2); font-size: 12.5px; color: var(--ink-3); }
 .st-reset > span { display: inline-flex; align-items: center; gap: 6px; }
 .st-reset > span svg { width: 15px; height: 15px; color: var(--ok); }
+.st-linkadd { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: start; }
+.st-linkadd textarea { width: 100%; min-height: 58px; padding: 8px 10px; font-size: 13.5px; resize: vertical; }
+.st-linkadd small { grid-column: 1 / -1; font-size: 12px; color: var(--ink-3); }
+@media (max-width: 560px) { .st-linkadd { grid-template-columns: minmax(0, 1fr); } }
+.st-cardpos .st-row { margin-top: 0; flex-wrap: nowrap; }
+.st-cardpos input[type='range'] { flex: 1; min-width: 0; accent-color: var(--jam); }
+.st-cardpos small { font-size: 12px; color: var(--ink-3); }
+/* Product photo: click (or focus + paste) to swap it */
+.st-prod-photo { position: relative; padding: 0; border: 0; background: none; cursor: pointer; border-radius: 10px; width: 64px; height: 84px; }
+.st-prod-photo img { width: 64px; height: 84px; object-fit: cover; border-radius: 10px; border: 1px solid var(--line); display: block; }
+.st-swap { position: absolute; left: 0; right: 0; bottom: 0; padding: 3px 0; font: 600 10.5px/1.2 var(--f); color: #fff; background: rgba(20, 12, 8, 0.7); border-radius: 0 0 10px 10px; opacity: 0; transition: opacity 0.15s; }
+.st-prod-photo:hover .st-swap, .st-prod-photo:focus-visible .st-swap { opacity: 1; }
+.st-prod-photo:focus-visible { outline: 2.5px solid var(--jam); outline-offset: 2px; }
+@media (hover: none) { .st-swap { opacity: 1; } }

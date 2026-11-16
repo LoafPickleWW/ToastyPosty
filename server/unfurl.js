@@ -153,18 +153,18 @@ function parse(html, finalUrl) {
 export async function unfurl(url) {
   const { res, url: finalUrl, timer } = await fetchPublic(url, { accept: 'text/html,application/xhtml+xml;q=0.9,*/*;q=0.5' });
   try {
+    const host = new URL(finalUrl).hostname.replace(/^www\./, '');
+    const blocked = `${host} blocks automatic previews`;
     if (!res.ok) {
       res.body?.cancel().catch(() => {});
-      throw bad(res.status === 403 || res.status === 429 || res.status === 503
-        ? `${new URL(finalUrl).hostname} blocks automatic previews. Fill in the product details yourself.`
-        : `The store answered ${res.status}. Check the link.`, 502);
+      if (res.status === 403 || res.status === 429 || res.status === 503) return fromUrlOnly(finalUrl, blocked);
+      throw bad(`The store answered ${res.status}. Check the link.`, 502);
     }
     if (!/html|xml/i.test(res.headers.get('content-type') || '')) throw bad('That link isn’t a web page.');
     const html = (await readCapped(res, MAX_HTML)).toString('utf8');
     const out = parse(html, finalUrl);
-    const host = new URL(finalUrl).hostname.replace(/^www\./, '');
     if (/captcha|robot check|are you a robot|client challenge|just a moment|access denied|attention required|pardon our interruption/i.test(out.name) || (!out.name && !out.image)) {
-      throw bad(`${host} blocks automatic previews. Fill in the product details yourself.`, 502);
+      return fromUrlOnly(finalUrl, blocked);
     }
     if (!out.found && /^\/?$/.test(new URL(finalUrl).pathname)) {
       throw bad(`That link went to ${host}’s home page, so the product may be sold out or gone.`, 502);
@@ -174,6 +174,28 @@ export async function unfurl(url) {
   } finally {
     clearTimeout(timer);
   }
+}
+
+// When a store blocks previews (Nordstrom, Abercrombie…), the product name is often still in its address:
+// nordstrom.com/s/andrew-marc-bubble-leather-moto-jacket/5434113 -> "Andrew Marc Bubble Leather Moto Jacket".
+const GENERIC = new Set(['products', 'product', 'shop', 'p', 's', 'dp', 'item', 'items', 'us', 'en', 'en-us', 'womens', 'mens', 'women', 'men', 'clothing', 'html']);
+export function nameFromUrl(url) {
+  let u;
+  try { u = new URL(url); } catch { return ''; }
+  const segs = u.pathname.split('/').map((x) => { try { return decodeURIComponent(x); } catch { return x; } })
+    .map((x) => x.replace(/\.(html?|aspx?|php)$/i, ''))
+    .filter((x) => /[a-z]{3,}[-_+][a-z]/i.test(x) && !GENERIC.has(x.toLowerCase()));
+  const best = segs.sort((a, b) => b.length - a.length)[0];
+  if (!best) return '';
+  const words = best.split(/[-_+\s]+/).filter((w) => w && !/^\d+$/.test(w) && !/^(?=.*\d)[a-z\d]{6,}$/i.test(w)); // drop ids like 5434113, ab12cd34
+  const small = new Set(['and', 'or', 'of', 'the', 'in', 'with', 'for', 'a', 'to']);
+  return words.map((w, i) => (i && small.has(w.toLowerCase()) ? w.toLowerCase() : w[0].toUpperCase() + w.slice(1).toLowerCase())).join(' ').slice(0, 140);
+}
+function fromUrlOnly(finalUrl, reason) {
+  const host = new URL(finalUrl).hostname.replace(/^www\./, '');
+  const name = nameFromUrl(finalUrl);
+  if (!name) throw bad(`${reason}. Fill in the product details yourself.`, 502);
+  return { name, brand: '', price: '', currency: '', image: '', site: host, finalUrl, found: false, partial: true, note: `${reason}, so only the name came through (from the link). Add the price and a photo yourself.` };
 }
 
 // Product photos for the Video Studio: browsers can't read pixels from other sites, so it comes through here.
