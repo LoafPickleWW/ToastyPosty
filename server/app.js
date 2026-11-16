@@ -8,6 +8,7 @@ import { platforms, list as platformList } from './platforms/index.js';
 import * as ai from './ai.js';
 import * as rss from './rss.js';
 import * as mediaHost from './media-host.js';
+import * as unfurl from './unfurl.js';
 
 const ACCESS_CODE = process.env.ACCESS_CODE || '';
 const MAX_UPLOAD = process.env.VERCEL ? Math.floor(4.4 * 1024 * 1024) : 512 * 1024 * 1024; // Vercel caps request bodies at 4.5MB
@@ -101,6 +102,17 @@ app.post('/api/media/public/delete', wrap(async (req, res) => {
   res.json({ ok: true });
 }));
 mediaHost.mountLocal(app);
+
+// ---------- Product link previews (paste an affiliate link, get name / brand / price / photo) ----------
+app.post('/api/unfurl', wrap(async (req, res) => {
+  if (!req.body?.url) throw bad('Paste a link.');
+  res.json(await unfurl.unfurl(req.body.url));
+}));
+app.post('/api/unfurl/image', wrap(async (req, res) => {
+  if (!req.body?.url) throw bad('No image link.');
+  const img = await unfurl.image(req.body.url);
+  res.set('Cache-Control', 'no-store').type(img.type).send(img.data);
+}));
 
 // ---------- Web feeds ----------
 app.post('/api/web/items', wrap(async (req, res) => res.json(await rss.webItems(req.body.feed))));
