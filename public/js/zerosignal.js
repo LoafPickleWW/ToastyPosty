@@ -171,15 +171,10 @@ export async function checkup(ai) {
   return { address, network, checks: r.checks, failed: r.failed, usdcAssetId: usdcId ? BigInt(usdcId) : null };
 }
 
-// The escrow names the USDC asset it takes, so read it from there once.
-const usdcIds = {};
-async function usdcAsset(ai) {
-  const { network } = zsOf(ai);
-  if (usdcIds[network]) return usdcIds[network];
-  const { usdcAssetId } = await checkup(ai);
-  if (!usdcAssetId) fail('Couldn’t read which USDC the ZeroSignal escrow uses. Check your connection and try again.');
-  return (usdcIds[network] = usdcAssetId);
-}
+// Circle's USDC on Algorand mainnet, the asset the ZeroSignal escrow takes (its config says so too;
+// "Run full checkup" shows it). Fixed, so balances don't wait on a full network checkup.
+const USDC_MAINNET = 31566704n;
+const usdcAsset = async () => USDC_MAINNET;
 
 // ---------- onboarding: fund with ALGO -> opt in to USDC -> send USDC ----------
 const MICRO = 1e6;

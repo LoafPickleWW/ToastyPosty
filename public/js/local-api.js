@@ -146,7 +146,9 @@ function mergeSecrets(existing = {}, incoming = {}) {
 }
 function providers() {
   const ai = db.settings.ai;
-  const zsText = !!(ai.zsMnemonic && ai.zsTextModel);
+  // ZeroSignal only counts once its AI wallet is funded (Settings checks the balance and records it).
+  const zsOn = !!(ai.zsMnemonic && ai.zsFunded);
+  const zsText = zsOn && !!ai.zsTextModel;
   const zsVision = zsText && !!ai.zsTextVision;
   const text = ai.textProvider === 'openai' && ai.openaiKey ? 'openai'
     : ai.textProvider === 'claude' && ai.anthropicKey ? 'claude'
@@ -155,7 +157,7 @@ function providers() {
   // Images go to whoever writes the captions when it can see them, else whichever key can.
   const vision = text === 'zerosignal' && zsVision ? 'zerosignal'
     : ai.anthropicKey ? 'claude' : ai.openaiKey ? 'openai' : zsVision ? 'zerosignal' : null;
-  const image = ai.openaiKey ? 'openai' : ai.zsMnemonic && ai.zsImageModel ? 'zerosignal' : null;
+  const image = ai.openaiKey ? 'openai' : zsOn && ai.zsImageModel ? 'zerosignal' : null;
   return { text, image, vision };
 }
 const fail = (msg) => { throw new Error(msg); };
@@ -296,7 +298,7 @@ async function setPayer(mnemonic) {
   const address = await zsai.payerAddress(phrase).catch(() => fail(words === 25
     ? 'That recovery phrase has a typo: a word isn’t in the list or the last word doesn’t match. Check it and try again.'
     : `That’s ${words} words. ZeroSignal AI wallets use a 25-word Algorand recovery phrase.`));
-  Object.assign(db.settings.ai, { zsMnemonic: phrase, zsAddress: address });
+  Object.assign(db.settings.ai, { zsMnemonic: phrase, zsAddress: address, zsFunded: false });
   zsai.forget();
 }
 const KEY_FIELDS = { anthropic: 'anthropicKey', openai: 'openaiKey', zerosignal: 'zsMnemonic' };
@@ -334,7 +336,7 @@ async function zerosignal(action, body) {
   switch (action) {
     case 'new': {
       const { mnemonic, address } = await zsai.newPayer();
-      Object.assign(ai, { zsMnemonic: mnemonic, zsAddress: address });
+      Object.assign(ai, { zsMnemonic: mnemonic, zsAddress: address, zsFunded: false });
       zsai.forget();
       return done();
     }
@@ -345,7 +347,13 @@ async function zerosignal(action, body) {
     case 'reveal': needWallet(); return { mnemonic: ai.zsMnemonic };
     case 'models': needWallet(); return { models: await zsai.models(ai) };
     case 'checkup': needWallet(); return zsai.checkup(ai);
-    case 'balances': needWallet(); return zsai.balances(ai);
+    case 'balances': {
+      needWallet();
+      const b = await zsai.balances(ai);
+      const funded = b.algo >= zsai.ALGO_READY && b.optedIn && b.usdc > 0;
+      if (!!ai.zsFunded !== funded) { ai.zsFunded = funded; await saveNow(); }
+      return { ...b, providers: providers() };
+    }
     case 'optin': needWallet(); return zsai.optIn(ai);
     case 'wallets': return zsai.wallets();
     case 'connect': return { address: await zsai.connectWallet(body.wallet) };
@@ -504,7 +512,7 @@ export async function handle(path, { method = 'GET', body = {}, form } = {}) {
       s.ai = mergeSecrets(s.ai, rest);
       if (clearAnthropic) s.ai.anthropicKey = '';
       if (clearOpenAI) s.ai.openaiKey = '';
-      if (clearZeroSignal) { s.ai.zsMnemonic = ''; s.ai.zsAddress = ''; zsai.forget(); }
+      if (clearZeroSignal) { s.ai.zsMnemonic = ''; s.ai.zsAddress = ''; s.ai.zsFunded = false; zsai.forget(); }
     }
     await saveNow();
     return { settings: publicSettings(s), providers: providers() };

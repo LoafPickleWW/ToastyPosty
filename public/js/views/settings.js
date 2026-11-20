@@ -226,6 +226,8 @@ export default function settings(root) {
       if (!ai.hasZeroSignal) return;
       try {
         const b = await api('/api/zs/balances', { method: 'POST' });
+        if (JSON.stringify(b.providers) !== JSON.stringify(state.providers)) { state.providers = b.providers; emit(); }
+        delete b.providers;
         // Only redraw when something changed, so a poll never wipes a selection or a click in progress.
         const key = JSON.stringify(b);
         if (key !== lastBalances) { lastBalances = key; renderSteps(b); }
