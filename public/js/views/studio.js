@@ -160,7 +160,7 @@ export default function studio(root, { arg }) {
       timeEl.textContent = `${fmtT(Math.min(t, tl.total))} / ${fmtT(tl.total)}`;
       dirty = false;
     }
-    if (now - lastThumb > 70 && !exporting) { lastThumb = now; drawThumbs(now / 1000); }
+    if (now - lastThumb > 70 && !exporting) { lastThumb = now; drawThumbs(now / 1000); drawMini(); }
   }
   const outline = (b) => {
     ctx.save(); ctx.strokeStyle = '#FFD45C'; ctx.lineWidth = 3; ctx.setLineDash([8, 6]); ctx.strokeRect(b.x, b.y, b.w, b.h); ctx.restore();
@@ -184,11 +184,23 @@ export default function studio(root, { arg }) {
       const c = proj.shopCard;
       return { obj: c, get size() { return c.scale ?? 1; }, set size(v) { c.scale = Math.round(Math.min(CARD_SCALE[1], Math.max(CARD_SCALE[0], v)) * 100) / 100; } };
     }
+    if (id === '__dot' || id === '__label') {
+      // Piece by Piece: the dot / label of the piece on screen. Saved per piece on its product.
+      const b = boxes[id];
+      const sl = b && proj.slides[b.slide];
+      if (!sl) return null;
+      const co = ((sl.product ||= { name: '', brand: '', price: '', url: '' }).callout ||= {});
+      const key = id === '__dot' ? 'dot' : 'label';
+      co[key] ||= { x: (b.x + b.w / 2) / canvas.width, y: (b.y + b.h / 2) / canvas.height, scale: 1 };
+      const c = co[key];
+      const [lo, hi] = key === 'dot' ? [0.5, 2] : [0.5, 1.6];
+      return { obj: c, get size() { return c.scale ?? 1; }, set size(v) { c.scale = Math.round(Math.min(hi, Math.max(lo, v)) * 100) / 100; } };
+    }
     const c = proj.captions.find((cc) => cc.id === id);
     return c && { obj: c, get size() { return c.size; }, set size(v) { c.size = Math.round(Math.min(260, Math.max(24, v))); } };
   }
   const inBox = (b, x, y) => b && x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h;
-  const afterEdit = (id) => (id === CARD ? renderPhotos() : renderCaptions());
+  const afterEdit = (id) => (String(id).startsWith('__') ? renderPhotos() : renderCaptions());
   canvas.addEventListener('pointerdown', (e) => {
     const [x, y] = toCanvas(e);
     const hs = 30 * (canvas.width / 1080);
@@ -200,7 +212,7 @@ export default function studio(root, { arg }) {
     } else {
       // Captions sit on top of the card, so they win.
       const capHit = [...proj.captions].reverse().find((cc) => inBox(boxes[cc.id], x, y));
-      const id = capHit ? capHit.id : inBox(boxes[CARD], x, y) ? CARD : null;
+      const id = capHit ? capHit.id : ['__dot', '__label', CARD].find((k) => inBox(boxes[k], x, y)) || null;
       if (!id) { if (selected) { selected = null; renderCaptions(); dirty = true; } return; }
       if (selected !== id) { selected = id; renderCaptions(); }
       const m = movable(id);
@@ -288,6 +300,7 @@ export default function studio(root, { arg }) {
     changed();
   }
   function renderPhotos() {
+    if (isShopTemplate(proj.template)) return void photosEl.replaceChildren(productsEditor(), fileIn);
     const n = proj.slides.length;
     const tpl = TEMPLATES[proj.template];
     const items = proj.slides.map((s, i) => h('div.st-ph', {
@@ -328,7 +341,6 @@ export default function studio(root, { arg }) {
         n > 1 ? h('button.btn.sm.quiet', { type: 'button', onclick: () => { proj.slides.reverse(); changed(); } }, 'Reverse') : null,
         n ? h('button.btn.sm.quiet.danger', { type: 'button', onclick: () => { proj.slides.forEach((s) => URL.revokeObjectURL(s.url)); proj.slides = []; changed(); } }, 'Clear') : null),
       n ? h('p.st-hint', hint) : '',
-      isShopTemplate(proj.template) ? productsEditor() : '',
       fileIn);
   }
 
@@ -406,6 +418,10 @@ export default function studio(root, { arg }) {
         h('button.st-prod-photo', { type: 'button', title: 'Change this photo: click to pick one, or click here and paste (Ctrl/Cmd+V)', 'aria-label': `Change photo ${i + 1}`, onclick: () => { swapIn.dataset.i = i; swapIn.click(); } },
           h('img', { src: s.url, alt: '' }), h('span.st-swap', 'Change')),
         h('span.st-n', String(i + 1)),
+        h('div.st-prod-acts',
+          h('button.btn.quiet.icon', { type: 'button', 'aria-label': `Move product ${i + 1} up`, title: 'Move up', disabled: i === 0, onclick: () => move(i, i - 1) }, '↑'),
+          h('button.btn.quiet.icon', { type: 'button', 'aria-label': `Move product ${i + 1} down`, title: 'Move down', disabled: i === n - 1, onclick: () => move(i, i + 1) }, '↓'),
+          h('button.btn.quiet.icon.danger', { type: 'button', 'aria-label': `Remove product ${i + 1}`, title: 'Remove', onclick: () => { URL.revokeObjectURL(s.url); proj.slides.splice(i, 1); changed(); } }, icon('trash'))),
         h('div.st-prod-f',
           h('input.input', { value: p.name, placeholder: 'Product name', 'aria-label': `Product ${i + 1} name`, oninput: set('name') }),
           h('div.st-prod-row',
@@ -415,17 +431,26 @@ export default function studio(root, { arg }) {
             onpaste: (e) => setTimeout(() => { p.url = cleanUrl(e.target.value) || e.target.value.trim(); read(); }, 0), onchange: read })));
     });
     return h('div.st-prods',
-      h('div.st-prods-head', h('b', 'Products'), h('span', 'One per photo. Shown on a card over each photo. Store blocked the photo? Click a product’s photo, then paste or pick your own.')),
       swapIn,
       h('div.st-linkadd', linksIn,
         h('button.btn.sm.butter', { type: 'button', onclick: (e) => busy(e.currentTarget, () => addFromLinks(linksIn.value), 'Reading links…') }, icon('sparkle'), 'Add from links'),
-        h('small', 'Each link becomes a photo with its name, brand and price filled in. Your link stays the one that gets posted, so your commission is tracked.')),
-      n ? h('div.st-prod-list', rows) : '',
+        h('small', 'Each link (or each product in a ShopMy collection) becomes a product with its photo, name, brand and price. Your link stays the one that gets posted, so your commission is tracked.')),
+      h('div.st-row.st-prod-add',
+        h('button.btn.sm', { type: 'button', onclick: () => fileIn.click() }, icon('image'), 'Add your own photos'),
+        h('span.muted', 'or paste one. Fill in its details below.')),
+      n ? h('div.st-prod-list', rows) : h('p.st-hint', 'No products yet. Until you add some, the preview shows sample products so you can try the templates.'),
+      n ? h('p.st-hint', 'Store blocked a photo? Click that product’s photo, then paste or pick your own.' + (proj.template === 'pieces' ? ' Drag the dot and the label on the preview to place them for each piece.' : '')) : '',
+      n > 1 ? h('div.st-row', h('div.seg', { role: 'group', 'aria-label': 'How photos fit the frame' },
+          h('button', { type: 'button', 'aria-pressed': String(proj.fit === 'fill'), onclick: () => { proj.fit = 'fill'; changed(); } }, 'Fill frame'),
+          h('button', { type: 'button', 'aria-pressed': String(proj.fit === 'fit'), onclick: () => { proj.fit = 'fit'; changed(); } }, 'Whole photo')),
+        h('button.btn.sm.quiet', { type: 'button', onclick: () => { proj.slides.reverse(); changed(); } }, 'Reverse'),
+        h('button.btn.sm.quiet.danger', { type: 'button', onclick: () => { proj.slides.forEach((x) => URL.revokeObjectURL(x.url)); proj.slides = []; changed(); } }, 'Clear all')) : '',
       fromPost.length ? h('button.btn.sm', { type: 'button', onclick: (e) => busy(e.currentTarget, async () => {
         if (!n) { for (const p of fromPost) proj.slides.push(await productSlide(p)); }
         else proj.slides.forEach((s, i) => { if (fromPost[i] && !(s.product?.name || s.product?.url)) s.product = { name: '', brand: '', price: '', ...fromPost[i] }; });
         changed();
       }, 'Loading…') }, icon('tag'), n ? `Fill in from my post’s ${fromPost.length} product${fromPost.length === 1 ? '' : 's'}` : `Make slides from my post’s ${fromPost.length} product${fromPost.length === 1 ? '' : 's'}`) : '',
+      proj.template === 'pieces' && proj.slides.some((x) => x.product?.callout) ? h('div.st-row', h('button.btn.sm.quiet', { type: 'button', onclick: () => { proj.slides.forEach((x) => { if (x.product) delete x.product.callout; }); if (selected === '__dot' || selected === '__label') selected = null; changed(); } }, icon('undo'), 'Reset dot & label positions')) : '',
       h('div.st-field.st-cardpos', { hidden: proj.template !== 'shop' }, h('span', 'Product card size ', cardOut),
         h('div.st-row', cardSize,
           h('button.btn.sm.quiet', { type: 'button', disabled: !proj.shopCard, onclick: () => { proj.shopCard = null; if (selected === '__card') selected = null; changed(); } }, 'Reset position')),
@@ -505,6 +530,7 @@ export default function studio(root, { arg }) {
     pop(`Added ${n} captions, one per photo. Click any of them to change the words.`, { title: 'Captioned' });
   }
   function renderCaptions() {
+    queueMicrotask(() => updateSummaries());
     const tl = timeline(proj);
     fontButtons = [];
     const list = proj.captions.map((c, i) => {
@@ -583,6 +609,7 @@ export default function studio(root, { arg }) {
     audioIn.value = '';
   }
   function renderMusic() {
+    queueMicrotask(() => updateSummaries());
     const a = proj.audio;
     musicEl.replaceChildren(
       a
@@ -684,16 +711,84 @@ export default function studio(root, { arg }) {
     renderTemplates();
     renderCaptions();
     updateLen();
+    updateSummaries();
   }
 
   // ---------- Page ----------
-  const sec = (title, sub, body) => h('section.card.st-sec', h('div.st-sec-head', h('h2', title), sub ? h('span', sub) : null), body);
+  // ---------- Steps (accordions) ----------
+  // Phones: one step open at a time, then Preview & export as the last step, plus a floating mini preview.
+  // Desktop: every step open (each can be collapsed), preview pinned beside them.
+  const MOBILE = window.matchMedia('(max-width: 900px)');
+  let stage; // the Preview & export card
+  const sections = [];
+  let openId = 'photos';
+  const closedDesk = new Set();
+  function sec(id, title, sub, body) {
+    const summary = h('span.st-sum');
+    const titleEl = h('h2', title);
+    const head = h('button.st-sec-head', { type: 'button', 'aria-expanded': 'true', 'aria-controls': 'st-body-' + id, onclick: () => toggleSec(id) },
+      h('span.st-step'), h('span.st-sec-title', titleEl, sub ? h('span.st-sub', sub) : null), summary, h('span.st-chev', icon('chevron')));
+    const el = h('section.card.st-sec', { 'data-sec': id }, head, h('div.st-sec-body', { id: 'st-body-' + id }, body));
+    sections.push({ id, el, head, summary, titleEl });
+    return el;
+  }
+  function applySecs() {
+    const mobile = MOBILE.matches;
+    for (const x of sections) {
+      const open = mobile ? x.id === openId : !closedDesk.has(x.id);
+      x.el.classList.toggle('open', open);
+      x.head.setAttribute('aria-expanded', String(open));
+    }
+  }
+  function toggleSec(id) {
+    if (MOBILE.matches) {
+      openId = openId === id ? null : id;
+      applySecs();
+      const x = sections.find((y) => y.id === id);
+      if (openId === id) requestAnimationFrame(() => x.el.scrollIntoView({ block: 'start', behavior: 'smooth' }));
+    } else {
+      closedDesk.has(id) ? closedDesk.delete(id) : closedDesk.add(id);
+      applySecs();
+    }
+  }
+  function updateSummaries() {
+    const n = proj.slides.length;
+    const named = proj.slides.filter((x) => x.product?.name).length;
+    const sum = {
+      photos: isShopTemplate(proj.template) ? (n ? `${n} product${n === 1 ? '' : 's'} · ${named} named` : 'Add products') : n ? `${n} photo${n === 1 ? '' : 's'}` : 'Add photos',
+      template: TEMPLATES[proj.template]?.name || '',
+      captions: proj.captions.length ? `${proj.captions.length} caption${proj.captions.length === 1 ? '' : 's'}` : 'None',
+      music: proj.audio?.name || 'None',
+    };
+    for (const x of sections) x.summary.textContent = sum[x.id] ?? '';
+    const ph = sections.find((x) => x.id === 'photos');
+    if (ph) ph.titleEl.textContent = isShopTemplate(proj.template) ? 'Products' : 'Photos';
+    // Preview & export is the step after the visible ones (it comes first in the page, so CSS counters can't number it).
+    const step = stage?.querySelector('.st-step');
+    if (step) step.textContent = String(sections.filter((x) => !x.el.hidden).length + 1);
+  }
+
+  // Floating mini preview (phones): live copy of the video while you edit further up; tap it to jump to the preview.
+  const miniCanvas = h('canvas', { width: 90, height: 160, 'aria-hidden': 'true' });
+  const mini = h('button.st-mini', { type: 'button', hidden: true, 'aria-label': 'Jump to the preview', onclick: () => stage.scrollIntoView({ block: 'start', behavior: 'smooth' }) },
+    miniCanvas, h('span', icon('play'), 'Preview'));
+  let stageVisible = true;
+  function drawMini() {
+    const show = MOBILE.matches && !stageVisible;
+    if (mini.hidden === show) mini.hidden = !show;
+    if (!show) return;
+    const f = fmt();
+    const w = 90, hgt = Math.round((90 * f.h) / f.w);
+    if (miniCanvas.height !== hgt) miniCanvas.height = hgt;
+    miniCanvas.getContext('2d').drawImage(canvas, 0, 0, w, hgt);
+  }
   root.append(
     h('div.page-head',
       h('div', h('span.tagline', 'lights, camera, toast'), h('h1', 'Video Studio'),
         h('p', 'Turn a set of photos into a vertical video for TikTok and Reels. Pick a trending template, add captions and a song, then export an MP4. It’s all made in your browser.'))),
     h('div.studio',
-      h('div.st-stage.card',
+      stage = h('div.st-stage.card',
+        h('div.st-stage-head', h('span.st-step'), h('h2', 'Preview & export')),
         screen,
         h('div.st-controls', playBtn, scrub, timeEl),
         lenEl,
@@ -702,13 +797,19 @@ export default function studio(root, { arg }) {
         progress,
         h('p.st-hint', `Exports at 1080p, 30fps, as ${(pickMime(false) || 'video/webm').includes('mp4') ? 'MP4' : 'WebM'}. Recording takes as long as the video.`)),
       h('div.st-panel',
-        sec('1. Photos', null, photosEl),
-        sec('2. Template', 'what’s working on TikTok & Reels', tplEl),
-        sec('3. Captions', 'add, style, drag, resize', capsEl),
-        sec('4. Music', 'optional', musicEl),
+        sec('photos', 'Photos', null, photosEl),
+        sec('template', 'Template', 'what’s working on TikTok & Reels', tplEl),
+        sec('captions', 'Captions', 'add, style, drag, resize', capsEl),
+        sec('music', 'Music', 'optional', musicEl),
         h('div.st-reset',
           h('span', icon('check'), 'Your project saves in this browser as you work.'),
           h('button.btn.sm.danger', { type: 'button', onclick: clearProject }, icon('trash'), 'Clear project')))));
+
+  root.append(mini);
+  applySecs();
+  MOBILE.addEventListener('change', applySecs);
+  const stageObs = new IntersectionObserver(([en]) => { stageVisible = en.isIntersecting; drawMini(); }, { threshold: 0.15 });
+  stageObs.observe(screen);
 
   async function clearProject() {
     if (!(await confirmBox('Clear this video project?', 'This removes the photos, captions, products and song from the Video Studio in this browser. Your posts and any videos you exported or added to posts stay put.', 'Clear project'))) return;
@@ -764,6 +865,8 @@ export default function studio(root, { arg }) {
   };
   document.addEventListener('paste', onPaste);
   return () => {
+    stageObs.disconnect();
+    MOBILE.removeEventListener('change', applySecs);
     document.removeEventListener('paste', onPaste);
     alive = false;
     clearInterval(saver);

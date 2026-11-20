@@ -795,78 +795,130 @@ const LIST = [
     },
   },
   {
-    id: 'bag', group: 'shop', name: 'Bag Haul', tag: 'Haul', per: 2.2, min: 1.4, max: 4, unit: 'product',
-    blurb: 'Every find springs up out of a shopping bag with a little sparkle, like unpacking a haul on camera. Best with product photos.',
+    id: 'bag', group: 'shop', name: 'Bag Haul', tag: 'Haul', per: 2.3, min: 1.4, max: 4, unit: 'product',
+    blurb: 'Each find rises out of a luxury shopping bag through tissue paper, with its name foil-stamped on the bag and a price tag on a cord.',
     plan: (n, per) => even(n, per, 2),
     draw(ctx, e) {
       if (e.t >= e.n * e.per) return shopEnd(ctx, e, e.t - e.n * e.per);
       const { i, local, s } = step(e);
       const u = e.u, tall = e.H / e.W > 1.6;
-      const L = e.settled ? Math.max(local, 1.2) : local;
-      const [c1, c2] = [['#FFF3CC', '#FFD45C'], ['#E1F2E9', '#A9DCC6'], ['#FBE2E5', '#FFB4C2']][i % 3];
-      const g = ctx.createLinearGradient(0, 0, 0, e.H);
-      g.addColorStop(0, c1); g.addColorStop(1, c2);
-      ctx.fillStyle = g; ctx.fillRect(0, 0, e.W, e.H);
-      const bagCol = ['#D7263D', '#2F7D62', '#24170F'][i % 3];
-      const bw = e.W * 0.68, bh = Math.min(e.H * 0.27, bw * 0.72), bx = (e.W - bw) / 2, by = e.H - bh - (tall ? e.H * 0.12 : 50 * u);
-      // handle (behind the product)
-      ctx.strokeStyle = bagCol; ctx.lineWidth = 18 * u; ctx.lineCap = 'round';
-      ctx.beginPath(); ctx.moveTo(bx + bw * 0.3, by + 6 * u); ctx.bezierCurveTo(bx + bw * 0.3, by - 150 * u, bx + bw * 0.7, by - 150 * u, bx + bw * 0.7, by + 6 * u); ctx.stroke();
-      // bag opening (inside)
-      ctx.fillStyle = 'rgba(0,0,0,0.28)';
-      rr(ctx, bx + 6 * u, by - 16 * u, bw - 12 * u, 36 * u, 14 * u); ctx.fill();
-      // the product rising out of the bag
-      const rise = back(clamp((L - 0.08) / 0.62));
-      const cw = e.W * 0.6, ch = Math.min(cw * 1.2, by - e.H * 0.1);
-      const cy = lerp(by + ch / 2 + 20 * u, by - ch * 0.5 - 10 * u, rise);
+      const L = e.settled ? Math.max(local, 1.4) : local;
+      const P = [
+        { bag: '#161514', hi: '#2B2826', ink: '#CDAE72', tissue: '#EFE2D8', tissue2: '#E3D2C5', rope: '#0C0B0A' },
+        { bag: '#F3EEE6', hi: '#FFFFFF', ink: '#1C1A18', tissue: '#DCE6E8', tissue2: '#C9D7DA', rope: '#D8CFC2' },
+        { bag: '#1E3830', hi: '#2C4C42', ink: '#D9BD83', tissue: '#F1E7DA', tissue2: '#E4D6C4', rope: '#13261F' },
+      ][i % 3];
+      // studio backdrop: warm seamless paper, soft spotlight, floor shadow
+      const bg = ctx.createLinearGradient(0, 0, 0, e.H);
+      bg.addColorStop(0, '#EEE8E0'); bg.addColorStop(1, '#D8CEC2');
+      ctx.fillStyle = bg; ctx.fillRect(0, 0, e.W, e.H);
+      const spot = ctx.createRadialGradient(e.W / 2, e.H * 0.36, 0, e.W / 2, e.H * 0.36, e.W * 0.9);
+      spot.addColorStop(0, 'rgba(255,255,255,0.6)'); spot.addColorStop(1, 'rgba(255,255,255,0)');
+      ctx.fillStyle = spot; ctx.fillRect(0, 0, e.W, e.H);
+      const bw = e.W * 0.66, bh = Math.min(e.H * 0.29, bw * 0.78), bx = (e.W - bw) / 2, by = e.H - bh - (tall ? e.H * 0.13 : 56 * u);
+      const floor = ctx.createRadialGradient(e.W / 2, by + bh, 0, e.W / 2, by + bh, bw * 0.75);
+      floor.addColorStop(0, 'rgba(40,28,18,0.32)'); floor.addColorStop(1, 'rgba(40,28,18,0)');
+      ctx.save(); ctx.translate(0, by + bh); ctx.scale(1, 0.18); ctx.fillStyle = floor; ctx.fillRect(0, -bw, e.W, bw * 2); ctx.restore();
+      // rope handles (behind everything in the bag): a dark cord with a lighter twist
+      const rope = (x0, x1, lift) => {
+        ctx.beginPath(); ctx.moveTo(x0, by + 8 * u); ctx.bezierCurveTo(x0, by - lift, x1, by - lift, x1, by + 8 * u);
+        ctx.strokeStyle = P.rope; ctx.lineWidth = 11 * u; ctx.lineCap = 'round'; ctx.setLineDash([]); ctx.stroke();
+        ctx.strokeStyle = 'rgba(255,255,255,0.18)'; ctx.lineWidth = 4 * u; ctx.setLineDash([7 * u, 7 * u]); ctx.stroke();
+        ctx.setLineDash([]);
+      };
+      rope(bx + bw * 0.13, bx + bw * 0.87, 260 * u);
+      // inside of the bag (the back panel)
+      ctx.fillStyle = P.hi; ctx.fillRect(bx + 10 * u, by - 18 * u, bw - 20 * u, 26 * u);
+      ctx.fillStyle = 'rgba(0,0,0,0.35)'; ctx.fillRect(bx + 10 * u, by - 4 * u, bw - 20 * u, 12 * u);
+      // tissue paper fanning out of the bag (back layer)
+      const fan = (dx, w, hgt, rot, col, wob) => {
+        ctx.save(); ctx.translate(e.W / 2 + dx, by + 4 * u); ctx.rotate(rot + wob);
+        ctx.fillStyle = col;
+        ctx.beginPath(); ctx.moveTo(-w / 2, 0); ctx.quadraticCurveTo(-w * 0.2, -hgt * 0.7, 0, -hgt); ctx.quadraticCurveTo(w * 0.25, -hgt * 0.6, w / 2, 0); ctx.closePath(); ctx.fill();
+        ctx.restore();
+      };
+      const tw = Math.sin(L * 3) * 0.02 * (1 - clamp(L / 1.6));
+      const open = easeOut(clamp(L / 0.5));
+      fan(-bw * 0.3, bw * 0.56, 230 * u * open, -0.5, P.tissue2, tw);
+      fan(bw * 0.3, bw * 0.56, 230 * u * open, 0.5, P.tissue2, -tw);
+      fan(0, bw * 0.5, 200 * u * open, 0.02, P.tissue, tw * 0.5);
+      // the product rising out of the tissue: soft, slow, settles
+      const rise = easeOut(clamp((L - 0.12) / 0.75));
+      const cw = e.W * 0.44, ch = Math.min(cw * 1.22, by - e.H * 0.08);
+      const cy = lerp(by + ch / 2, by - ch * 0.5 - 24 * u, rise);
       ctx.save();
-      ctx.beginPath(); ctx.rect(0, 0, e.W, by + 4 * u); ctx.clip();
+      ctx.beginPath(); ctx.rect(0, 0, e.W, by + 2 * u); ctx.clip();
       ctx.translate(e.W / 2, cy);
-      ctx.rotate((rand(i, 3) - 0.5) * 0.12 * (1 - clamp((L - 0.7) / 0.5)) + (rand(i, 4) - 0.5) * 0.05);
-      ctx.shadowColor = 'rgba(0,0,0,0.25)'; ctx.shadowBlur = 40 * u; ctx.shadowOffsetY = 16 * u;
-      ctx.fillStyle = '#fff';
-      rr(ctx, -cw / 2, -ch / 2, cw, ch, 32 * u); ctx.fill();
+      ctx.rotate((rand(i, 4) - 0.5) * 0.04);
+      ctx.shadowColor = 'rgba(40,28,18,0.22)'; ctx.shadowBlur = 50 * u; ctx.shadowOffsetY = 20 * u;
+      ctx.fillStyle = '#fff'; rr(ctx, -cw / 2, -ch / 2, cw, ch, 14 * u); ctx.fill();
       ctx.shadowColor = 'transparent';
-      ctx.save(); rr(ctx, -cw / 2, -ch / 2, cw, ch, 32 * u); ctx.clip();
-      onWhite(ctx, s, -cw / 2, -ch / 2, cw, ch);
+      ctx.save(); rr(ctx, -cw / 2, -ch / 2, cw, ch, 14 * u); ctx.clip(); onWhite(ctx, s, -cw / 2, -ch / 2, cw, ch, 0.05); ctx.restore();
       ctx.restore();
-      ctx.restore();
-      // sparkles as it pops out
-      const sp = clamp((L - 0.45) / 0.6);
-      if (sp > 0 && sp < 1) for (let k = 0; k < 6; k++) {
-        const ang = (k / 6) * Math.PI * 2 + rand(i, k) * 0.6;
-        const dist = (cw * 0.55 + 40 * u) * (0.7 + sp * 0.5);
-        sparkle(ctx, e.W / 2 + Math.cos(ang) * dist, by - ch * 0.5 + Math.sin(ang) * dist * 0.8, (22 + rand(k, i) * 18) * u, Math.sin(sp * Math.PI));
+      // tissue in front of the product's base
+      fan(-bw * 0.12, bw * 0.42, 96 * u * open, -0.18, P.tissue, -tw);
+      fan(bw * 0.14, bw * 0.4, 84 * u * open, 0.24, P.tissue, tw);
+      // bag front: matte panel, folded top band, side folds, gold rivets
+      ctx.save();
+      ctx.beginPath(); ctx.rect(bx, by, bw, bh); ctx.clip();
+      const face = ctx.createLinearGradient(bx, 0, bx + bw, 0);
+      face.addColorStop(0, 'rgba(0,0,0,0.18)'); face.addColorStop(0.12, 'rgba(0,0,0,0)'); face.addColorStop(0.88, 'rgba(0,0,0,0)'); face.addColorStop(1, 'rgba(0,0,0,0.22)');
+      ctx.fillStyle = P.bag; ctx.fillRect(bx, by, bw, bh);
+      ctx.fillStyle = face; ctx.fillRect(bx, by, bw, bh);
+      ctx.fillStyle = 'rgba(255,255,255,0.07)'; ctx.fillRect(bx, by, bw, 34 * u);
+      ctx.fillStyle = 'rgba(0,0,0,0.12)'; ctx.fillRect(bx, by + 34 * u, bw, 2 * u);
+      // a slow sheen sweeping across the bag
+      const sweep = clamp((L - 0.55) / 0.9);
+      if (sweep > 0 && sweep < 1) {
+        const sx = lerp(bx - bw * 0.5, bx + bw * 1.5, sweep);
+        const g = ctx.createLinearGradient(sx - 120 * u, by, sx + 120 * u, by + bh);
+        g.addColorStop(0, 'rgba(255,255,255,0)'); g.addColorStop(0.5, 'rgba(255,255,255,0.16)'); g.addColorStop(1, 'rgba(255,255,255,0)');
+        ctx.fillStyle = g; ctx.fillRect(bx, by, bw, bh);
       }
-      // bag front with the product name on it
-      ctx.fillStyle = bagCol;
-      ctx.beginPath(); ctx.moveTo(bx, by); ctx.lineTo(bx + bw, by); ctx.lineTo(bx + bw - 22 * u, by + bh); ctx.lineTo(bx + 22 * u, by + bh); ctx.closePath(); ctx.fill();
-      ctx.fillStyle = 'rgba(255,255,255,0.12)'; ctx.fillRect(bx, by, bw, 10 * u);
+      ctx.restore();
+      
+      // the front handle has flopped forward over the bag face, like a real boutique bag
+      {
+        const x0 = bx + bw * 0.13, x1 = bx + bw * 0.87, y0 = by + 16 * u;
+        ctx.beginPath(); ctx.moveTo(x0, y0); ctx.bezierCurveTo(x0 + 30 * u, y0 + 96 * u, x1 - 30 * u, y0 + 96 * u, x1, y0);
+        ctx.strokeStyle = 'rgba(0,0,0,0.25)'; ctx.lineWidth = 13 * u; ctx.lineCap = 'round'; ctx.stroke();
+        ctx.strokeStyle = P.ink === '#1C1A18' ? '#CFC4B4' : P.rope; ctx.lineWidth = 10 * u; ctx.stroke();
+        ctx.strokeStyle = 'rgba(255,255,255,0.22)'; ctx.lineWidth = 4 * u; ctx.setLineDash([7 * u, 7 * u]); ctx.stroke(); ctx.setLineDash([]);
+      }
+      for (const rx of [bx + bw * 0.13, bx + bw * 0.87]) { ctx.fillStyle = P.ink; ctx.beginPath(); ctx.arc(rx, by + 16 * u, 7 * u, 0, 7); ctx.fill(); }
+      // foil-stamped type
       const p = productFor(s, i), price = priceText(p);
-      const tk = clamp((L - 0.35) / 0.35);
+      const tk = clamp((L - 0.4) / 0.5);
       ctx.save();
       ctx.globalAlpha = tk;
-      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      if (p.brand) { ctx.font = `600 ${26 * u}px "DM Mono", monospace`; ctx.fillStyle = 'rgba(255,255,255,0.75)'; ctx.fillText(ellipsize(ctx, p.brand.toUpperCase(), bw - 80 * u), e.W / 2, by + bh * 0.26); }
-      ctx.font = fontCss('tiktok', 46 * u); ctx.fillStyle = '#fff';
+      ctx.fillStyle = P.ink; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      const brand = (p.brand || 'THE EDIT').toUpperCase();
+      ctx.font = `600 ${26 * u}px "Archivo", sans-serif`;
+      if ('letterSpacing' in ctx) ctx.letterSpacing = `${8 * u}px`;
+      ctx.fillText(ellipsize(ctx, brand, bw - 80 * u), e.W / 2 + 4 * u, by + bh * 0.38);
+      if ('letterSpacing' in ctx) ctx.letterSpacing = '0px';
+      ctx.fillRect(e.W / 2 - 30 * u, by + bh * 0.38 + 30 * u, 60 * u, 2 * u);
+      ctx.font = fontCss('playfair', 50 * u);
       const lines = wrapText(ctx, p.name || `Find ${i + 1}`, bw - 90 * u, 2);
-      lines.forEach((ln, li) => ctx.fillText(ln, e.W / 2, by + bh * (lines.length > 1 ? 0.5 : 0.56) + li * 54 * u));
+      lines.forEach((ln, li) => ctx.fillText(ln, e.W / 2, by + bh * 0.38 + 80 * u + li * 58 * u));
       ctx.restore();
-      // price tag hanging off the bag
+      // price on a small card tag, hung from the handle by a cord
       if (price) {
-        const swing = Math.sin(L * 5) * 0.12 * (1 - clamp((L - 0.6) / 1.2));
+        const swing = Math.sin(L * 4) * 0.08 * (1 - clamp((L - 0.6) / 1.4));
+        const hx = bx + bw * 0.87, hy = by + 16 * u;
         ctx.save();
         ctx.globalAlpha = tk;
-        ctx.translate(bx + bw - 40 * u, by + 26 * u);
-        ctx.rotate(0.22 + swing);
-        ctx.font = `400 ${52 * u}px "Anton", Impact, sans-serif`;
-        const tw = ctx.measureText(price).width + 56 * u;
-        ctx.strokeStyle = '#24170F'; ctx.lineWidth = 3 * u;
-        ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, 40 * u); ctx.stroke();
-        ctx.fillStyle = '#FFE14D';
-        rr(ctx, -tw / 2, 40 * u, tw, 84 * u, 14 * u); ctx.fill();
-        ctx.fillStyle = '#24170F'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-        ctx.fillText(price, 0, 84 * u);
+        ctx.translate(hx, hy); ctx.rotate(-0.5 + swing);
+        ctx.strokeStyle = P.ink; ctx.lineWidth = 2 * u;
+        ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, 70 * u); ctx.stroke();
+        ctx.font = fontCss('playfair', 40 * u);
+        const tw2 = Math.max(130 * u, ctx.measureText(price).width + 50 * u);
+        ctx.shadowColor = 'rgba(0,0,0,0.25)'; ctx.shadowBlur = 16 * u; ctx.shadowOffsetY = 6 * u;
+        ctx.fillStyle = '#FBF8F2'; rr(ctx, -tw2 / 2, 70 * u, tw2, 92 * u, 8 * u); ctx.fill();
+        ctx.shadowColor = 'transparent';
+        ctx.fillStyle = '#D8CFC2'; ctx.beginPath(); ctx.arc(0, 88 * u, 6 * u, 0, 7); ctx.fill();
+        ctx.fillStyle = '#1C1A18'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText(price, 0, 126 * u);
         ctx.restore();
       }
     },
@@ -1018,94 +1070,120 @@ const LIST = [
       full(ctx, s, e, 1 + 0.08 * easeOut(clamp(L / 1.4)));
       if (i === 0 && local < 0.3 && !e.settled) { ctx.fillStyle = `rgba(248,242,230,${1 - local / 0.3})`; ctx.fillRect(0, 0, e.W, e.H); }
       const p = productFor(s, i), price = priceText(p);
-      // callout: a pulsing dot, a line drawing out to a label
+      // callout: a pulsing dot on the piece, a line, and a label. Both can be dragged in the Studio,
+      // per piece (saved as product.callout = { dot: {x, y, scale}, label: {x, y, scale} }, 0..1 of the frame).
       const left = i % 2 === 1;
-      const ax = e.W * (left ? 0.62 : 0.38) + (rand(i, 2) - 0.5) * e.W * 0.08, ay = e.H * (0.42 + (rand(i, 5) - 0.5) * 0.12);
-      const bxEnd = left ? 60 * u : e.W - 60 * u, byEnd = ay + 230 * u;
+      const co = s.product?.callout || {};
+      const ax = (co.dot?.x ?? (left ? 0.62 : 0.38) + (rand(i, 2) - 0.5) * 0.08) * e.W;
+      const ay = (co.dot?.y ?? 0.42 + (rand(i, 5) - 0.5) * 0.12) * e.H;
+      const ds = clamp(co.dot?.scale ?? 1, 0.5, 2);
       const lk = easeInOut(clamp((L - 0.25) / 0.35));
       const dk = back(clamp(L / 0.3));
+      // label size (needed to place it and aim the line at its edge)
+      ctx.font = fontCss('tiktok', 46 * u);
+      const maxW = e.W * 0.6;
+      const lines = wrapText(ctx, p.name || `Piece ${i + 1}`, maxW - 60 * u, 2);
+      const lw = Math.min(maxW, Math.max(...lines.map((l) => ctx.measureText(l).width), 200 * u) + 60 * u);
+      const lh = 40 * u + (p.brand ? 40 * u : 0) + lines.length * 54 * u + (price ? 64 * u : 0);
+      const ls = clamp(co.label?.scale ?? 1, 0.5, 1.6);
+      const lcx = (co.label?.x ?? 0) * e.W || (left ? 60 * u + (lw * ls) / 2 : e.W - 60 * u - (lw * ls) / 2);
+      const lcy = (co.label?.y ?? 0) * e.H || ay + 246 * u + (lh * ls) / 2;
+      const box = { x: lcx - (lw * ls) / 2, y: lcy - (lh * ls) / 2, w: lw * ls, h: lh * ls };
+      // the line ends at the nearest point on the label's edge
+      const tx = clamp(ax, box.x, box.x + box.w), ty = clamp(ay, box.y, box.y + box.h);
       ctx.save();
-      ctx.fillStyle = 'rgba(255,255,255,0.35)';
-      ctx.beginPath(); ctx.arc(ax, ay, (30 + 14 * Math.sin(L * 6)) * u * dk, 0, 7); ctx.fill();
-      ctx.fillStyle = '#fff'; ctx.strokeStyle = '#24170F'; ctx.lineWidth = 4 * u;
-      ctx.beginPath(); ctx.arc(ax, ay, 16 * u * dk, 0, 7); ctx.fill(); ctx.stroke();
-      if (lk > 0) {
-        const mx = ax + (left ? -1 : 1) * 60 * u, my = byEnd;
+      if (lk > 0 && Math.hypot(tx - ax, ty - ay) > 20 * u) {
         ctx.strokeStyle = '#fff'; ctx.lineWidth = 5 * u; ctx.lineCap = 'round';
         ctx.shadowColor = 'rgba(0,0,0,0.4)'; ctx.shadowBlur = 8 * u;
-        ctx.beginPath(); ctx.moveTo(ax, ay);
-        const seg1 = Math.min(1, lk * 2), seg2 = Math.max(0, lk * 2 - 1);
-        ctx.lineTo(lerp(ax, mx, seg1), lerp(ay, my, seg1));
-        if (seg2 > 0) ctx.lineTo(lerp(mx, bxEnd, seg2), my);
-        ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(lerp(ax, tx, lk), lerp(ay, ty, lk)); ctx.stroke();
         ctx.shadowColor = 'transparent';
       }
+      ctx.fillStyle = 'rgba(255,255,255,0.35)';
+      ctx.beginPath(); ctx.arc(ax, ay, (30 + 14 * Math.sin(L * 6)) * u * dk * ds, 0, 7); ctx.fill();
+      ctx.fillStyle = '#fff'; ctx.strokeStyle = '#24170F'; ctx.lineWidth = 4 * u * ds;
+      ctx.beginPath(); ctx.arc(ax, ay, 16 * u * dk * ds, 0, 7); ctx.fill(); ctx.stroke();
+      const hit = 44 * u * ds;
+      e.out.dot = { x: ax - hit, y: ay - hit, w: hit * 2, h: hit * 2, slide: i };
       const bk = clamp((L - 0.55) / 0.3);
       if (bk > 0) {
-        ctx.font = fontCss('tiktok', 46 * u);
-        const maxW = e.W * 0.6;
-        const lines = wrapText(ctx, p.name || `Piece ${i + 1}`, maxW - 60 * u, 2);
-        const w = Math.min(maxW, Math.max(...lines.map((l) => ctx.measureText(l).width), 200 * u) + 60 * u);
-        const h = 40 * u + (p.brand ? 40 * u : 0) + lines.length * 54 * u + (price ? 64 * u : 0);
-        const x = left ? bxEnd : bxEnd - w, y = byEnd + 16 * u;
+        e.out.label = { ...box, slide: i };
         ctx.globalAlpha = bk;
-        ctx.translate(0, (1 - easeOut(bk)) * 30 * u);
+        ctx.translate(lcx, lcy + (1 - easeOut(bk)) * 30 * u);
+        ctx.scale(ls, ls);
+        const x = -lw / 2, y = -lh / 2;
         ctx.shadowColor = 'rgba(0,0,0,0.3)'; ctx.shadowBlur = 30 * u; ctx.shadowOffsetY = 10 * u;
-        ctx.fillStyle = '#fff'; rr(ctx, x, y, w, h, 24 * u); ctx.fill();
+        ctx.fillStyle = '#fff'; rr(ctx, x, y, lw, lh, 24 * u); ctx.fill();
         ctx.shadowColor = 'transparent';
         ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-        let ty = y + 40 * u;
-        if (p.brand) { ctx.font = `600 ${26 * u}px "DM Mono", monospace`; ctx.fillStyle = '#8F7B6A'; ctx.fillText(ellipsize(ctx, p.brand.toUpperCase(), w - 60 * u), x + 30 * u, ty); ty += 42 * u; }
+        let yy = y + 40 * u;
+        if (p.brand) { ctx.font = `600 ${26 * u}px "DM Mono", monospace`; ctx.fillStyle = '#8F7B6A'; ctx.fillText(ellipsize(ctx, p.brand.toUpperCase(), lw - 60 * u), x + 30 * u, yy); yy += 42 * u; }
         ctx.font = fontCss('tiktok', 46 * u); ctx.fillStyle = '#111';
-        lines.forEach((ln) => { ctx.fillText(ln, x + 30 * u, ty); ty += 54 * u; });
-        if (price) { ctx.font = `400 ${50 * u}px "Anton", Impact, sans-serif`; ctx.fillStyle = '#D7263D'; ctx.fillText(price, x + 30 * u, ty + 6 * u); }
+        lines.forEach((ln) => { ctx.fillText(ln, x + 30 * u, yy); yy += 54 * u; });
+        if (price) { ctx.font = `400 ${50 * u}px "Anton", Impact, sans-serif`; ctx.fillStyle = '#D7263D'; ctx.fillText(price, x + 30 * u, yy + 6 * u); }
       }
       ctx.restore();
     },
   },
   {
     id: 'cart', group: 'shop', name: 'Add to Cart', tag: 'Tap to shop', per: 2.4, min: 1.6, max: 5, unit: 'product',
-    blurb: 'Looks like a shopping app: the product sheet slides up, “Add to cart” gets tapped and the cart count ticks up with every find.',
+    blurb: 'Looks like a shopping app: the product sits on its page, “Add to cart” gets tapped and the cart count ticks up with every find.',
     plan: (n, per) => even(n, per, 2),
     draw(ctx, e) {
       if (e.t >= e.n * e.per) return shopEnd(ctx, e, e.t - e.n * e.per);
       const { i, local, s } = step(e);
       const u = e.u, tall = e.H / e.W > 1.6, tap = Math.min(1.2, e.per * 0.55);
       const L = e.settled ? Math.max(local, tap + 0.5) : local;
-      full(ctx, s, e, 1.04 + 0.03 * clamp(L / e.per));
-      const shade = ctx.createLinearGradient(0, e.H * 0.45, 0, e.H);
-      shade.addColorStop(0, 'rgba(0,0,0,0)'); shade.addColorStop(1, 'rgba(0,0,0,0.45)');
-      ctx.fillStyle = shade; ctx.fillRect(0, 0, e.W, e.H);
       const p = productFor(s, i), price = priceText(p);
-      // bottom sheet
-      ctx.font = fontCss('tiktok', 50 * u);
-      const lines = wrapText(ctx, p.name || `Product ${i + 1}`, e.W - 140 * u, 2);
-      const sh = 120 * u + (p.brand ? 40 * u : 0) + lines.length * 60 * u + (price ? 70 * u : 0) + 150 * u + (tall ? e.H * 0.16 : 30 * u); // keep the button above TikTok/Reels' caption area
+      // a compact product sheet at the bottom (kept above TikTok/Reels' caption area)
+      ctx.font = fontCss('tiktok', 46 * u);
+      const name = ellipsize(ctx, p.name || `Product ${i + 1}`, e.W - 140 * u);
+      const bottomSafe = tall ? e.H * 0.15 : 30 * u;
+      const sh = 70 * u + (p.brand ? 38 * u : 0) + 56 * u + 30 * u + 104 * u + bottomSafe;
       const up = easeOut(clamp(L / 0.42));
       const sy = e.H - sh * up;
+      // the product page: the whole photo sits in the space above the sheet, nothing hidden behind it
+      ctx.fillStyle = '#F6F3EE'; ctx.fillRect(0, 0, e.W, e.H);
+      const top = tall ? e.H * 0.09 : 30 * u, areaB = e.H - sh - 20 * u;
+      const pz = 1 + 0.04 * clamp(L / e.per);
+      const ah = areaB - top, aw = e.W - 60 * u;
       ctx.save();
-      ctx.shadowColor = 'rgba(0,0,0,0.35)'; ctx.shadowBlur = 40 * u;
-      ctx.fillStyle = '#fff'; rr(ctx, 0, sy, e.W, sh + 60 * u, 48 * u); ctx.fill();
+      ctx.translate(e.W / 2, top + ah / 2); ctx.scale(pz, pz);
+      ctx.globalAlpha = clamp(L / 0.25);
+      if (e.fit === 'fill') { ctx.save(); rr(ctx, -aw / 2, -ah / 2, aw, ah, 28 * u); ctx.clip(); cover(ctx, s, -aw / 2, -ah / 2, aw, ah); ctx.restore(); }
+      else {
+        const sc = Math.min(aw / s.w, ah / s.h), dw = s.w * sc, dh = s.h * sc;
+        ctx.save(); rr(ctx, -dw / 2, -dh / 2, dw, dh, 20 * u); ctx.clip();
+        ctx.drawImage(s.img, -dw / 2, -dh / 2, dw, dh);
+        ctx.restore();
+      }
+      ctx.restore();
+      // page dots, like a product gallery
+      const nd = Math.min(e.n, 8);
+      for (let d = 0; d < nd; d++) { ctx.fillStyle = d === Math.min(i, nd - 1) ? '#24170F' : 'rgba(36,23,15,0.2)'; ctx.beginPath(); ctx.arc(e.W / 2 + (d - (nd - 1) / 2) * 22 * u, areaB + 2 * u, 6 * u, 0, 7); ctx.fill(); }
+      ctx.save();
+      ctx.shadowColor = 'rgba(0,0,0,0.18)'; ctx.shadowBlur = 40 * u; ctx.shadowOffsetY = -6 * u;
+      ctx.fillStyle = '#fff'; rr(ctx, 0, sy, e.W, sh + 60 * u, 44 * u); ctx.fill();
       ctx.shadowColor = 'transparent';
-      ctx.fillStyle = '#D9D2C5'; rr(ctx, e.W / 2 - 50 * u, sy + 20 * u, 100 * u, 10 * u, 5 * u); ctx.fill();
-      ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-      let ty = sy + 80 * u;
-      if (p.brand) { ctx.font = `600 ${28 * u}px "DM Mono", monospace`; ctx.fillStyle = '#8F7B6A'; ctx.fillText(ellipsize(ctx, p.brand.toUpperCase(), e.W - 140 * u), 70 * u, ty); ty += 46 * u; }
-      ctx.font = fontCss('tiktok', 50 * u); ctx.fillStyle = '#111';
-      lines.forEach((ln) => { ctx.fillText(ln, 70 * u, ty); ty += 60 * u; });
-      if (price) { ctx.font = `400 ${58 * u}px "Anton", Impact, sans-serif`; ctx.fillStyle = '#D7263D'; ctx.fillText(price, 70 * u, ty + 8 * u); ty += 70 * u; }
+      ctx.fillStyle = '#E3DCD0'; rr(ctx, e.W / 2 - 46 * u, sy + 18 * u, 92 * u, 9 * u, 5 * u); ctx.fill();
+      ctx.textBaseline = 'middle';
+      let ty = sy + 66 * u;
+      if (p.brand) { ctx.textAlign = 'left'; ctx.font = `600 ${27 * u}px "DM Mono", monospace`; ctx.fillStyle = '#8F7B6A'; ctx.fillText(ellipsize(ctx, p.brand.toUpperCase(), e.W - 340 * u), 70 * u, ty); ty += 40 * u; }
+      if (price) { ctx.textAlign = 'right'; ctx.font = `400 ${56 * u}px "Anton", Impact, sans-serif`; ctx.fillStyle = '#D7263D'; ctx.fillText(price, e.W - 70 * u, sy + 66 * u + (p.brand ? 20 * u : 0)); }
+      ctx.textAlign = 'left'; ctx.font = fontCss('tiktok', 46 * u); ctx.fillStyle = '#111';
+      ctx.fillText(ellipsize(ctx, name, e.W - (price ? 340 : 140) * u), 70 * u, ty + 6 * u);
+      ty += 56 * u;
       // the button gets tapped
-      const bw = e.W - 140 * u, bh = 112 * u, bx = 70 * u, bY = ty + 20 * u;
+      const bw = e.W - 140 * u, bh = 104 * u, bx = 70 * u, bY = ty + 20 * u;
       const tapped = L >= tap;
       const press = tapped ? 1 - 0.05 * Math.sin(clamp((L - tap) / 0.2) * Math.PI) : 1;
       ctx.save();
       ctx.translate(bx + bw / 2, bY + bh / 2); ctx.scale(press, press);
       ctx.fillStyle = tapped ? '#23874D' : '#111';
       rr(ctx, -bw / 2, -bh / 2, bw, bh, bh / 2); ctx.fill();
-      ctx.fillStyle = '#fff'; ctx.font = fontCss('tiktok', 44 * u); ctx.textAlign = 'center';
+      ctx.fillStyle = '#fff'; ctx.font = fontCss('tiktok', 42 * u); ctx.textAlign = 'center';
       const lbl = tapped ? '✓  Added to cart' : 'Add to cart';
       ctx.fillText(lbl, tapped ? 0 : 26 * u, 2 * u);
-      if (!tapped) cartIcon(ctx, -ctx.measureText(lbl).width / 2 - 24 * u, 0, 46 * u, '#fff');
+      if (!tapped) cartIcon(ctx, -ctx.measureText(lbl).width / 2 - 24 * u, 0, 44 * u, '#fff');
       ctx.restore();
       // the finger
       const fx = bx + bw * 0.62, fy = bY + bh / 2;
@@ -1128,17 +1206,17 @@ const LIST = [
       // cart counter, top right
       const count = i + (tapped ? 1 : 0);
       const bump = tapped ? 1 + 0.35 * (1 - easeOut(clamp((L - tap) / 0.35))) : 1;
-      const cx = e.W - 110 * u, cy = (tall ? e.H * 0.1 : 90 * u);
+      const cx = e.W - 100 * u, cy = (tall ? e.H * 0.05 : 70 * u) + 10 * u;
       ctx.save();
       ctx.translate(cx, cy); ctx.scale(bump, bump);
-      ctx.shadowColor = 'rgba(0,0,0,0.3)'; ctx.shadowBlur = 20 * u;
-      ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(0, 0, 58 * u, 0, 7); ctx.fill();
+      ctx.shadowColor = 'rgba(0,0,0,0.18)'; ctx.shadowBlur = 16 * u;
+      ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(0, 0, 52 * u, 0, 7); ctx.fill();
       ctx.shadowColor = 'transparent';
-      cartIcon(ctx, -2 * u, 2 * u, 60 * u, '#111');
+      cartIcon(ctx, -2 * u, 2 * u, 56 * u, '#111');
       if (count > 0) {
-        ctx.fillStyle = '#D7263D'; ctx.beginPath(); ctx.arc(40 * u, -40 * u, 28 * u, 0, 7); ctx.fill();
-        ctx.fillStyle = '#fff'; ctx.font = fontCss('tiktok', 30 * u); ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-        ctx.fillText(String(count), 40 * u, -38 * u);
+        ctx.fillStyle = '#D7263D'; ctx.beginPath(); ctx.arc(36 * u, -36 * u, 26 * u, 0, 7); ctx.fill();
+        ctx.fillStyle = '#fff'; ctx.font = fontCss('tiktok', 28 * u); ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText(String(count), 36 * u, -34 * u);
       }
       ctx.restore();
     },
@@ -1320,6 +1398,8 @@ export function renderFrame(ctx, proj, t, { template, captions = true, selected,
   ctx.restore();
   const boxes = {};
   if (e.out.card) boxes.__card = e.out.card; // Shop the Look product card: draggable like a caption
+  if (e.out.dot) boxes.__dot = e.out.dot; // Piece by Piece: the dot and its label are draggable too
+  if (e.out.label) boxes.__label = e.out.label;
   if (!captions) return boxes;
   for (const c of proj.captions) {
     const [a, b] = captionWindow(c, tl);

@@ -159,3 +159,75 @@
 .st-tgroup.shop .st-tag { background: var(--jam); color: #fff; }
 /* Tags stay on one line inside the thumbnail */
 .st-tag { right: auto; max-width: calc(100% - 10px); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* ================= Steps (accordions) ================= */
+.studio { counter-reset: step; }
+.st-sec { padding: 0; }
+.st-sec:not([hidden]) { counter-increment: step; }
+.st-sec .st-sec-head { width: 100%; display: flex; align-items: center; gap: 10px; flex-wrap: nowrap; margin: 0; padding: 16px 18px; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; border-radius: var(--r); }
+.st-sec .st-sec-head:hover h2 { color: var(--jam); }
+.st-sec .st-sec-head:focus-visible { outline: 2.5px solid var(--jam); outline-offset: -3px; }
+.st-sec-head .st-step, .st-stage-head .st-step { flex: none; width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; background: var(--ink); color: var(--bg); font: 600 12px/1 var(--mono); }
+.st-sec-head .st-step::before { content: counter(step); }
+.st-sec-head .st-sec-title { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 2px 10px; flex-wrap: wrap; }
+.st-sec-head .st-sec-title h2 { margin: 0; font-size: 17px; font-weight: 800; letter-spacing: -0.02em; transition: color 0.15s; }
+.st-sec-head .st-sub { font-size: 12.5px; color: var(--ink-3); }
+.st-sec-head .st-sum { flex: none; max-width: 42%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 500 11.5px/1.2 var(--mono); color: var(--ink-2); background: var(--sunken); padding: 4px 9px; border-radius: 999px; }
+.st-sec-head .st-sum:empty { display: none; }
+.st-sec.open .st-sec-head .st-sum { display: none; }
+.st-sec-head .st-chev { flex: none; display: grid; color: var(--ink-3); }
+.st-sec-head .st-chev svg { width: 18px; height: 18px; transition: transform 0.2s var(--ease); }
+.st-sec.open .st-sec-head .st-chev svg { transform: rotate(180deg); }
+.st-sec-body { display: none; padding: 0 20px 18px; }
+.st-sec.open .st-sec-body { display: block; animation: st-open 0.2s var(--ease); }
+@keyframes st-open { from { opacity: 0; transform: translateY(-4px); } }
+.st-sec-body .st-prods { margin-top: 0; padding-top: 0; border-top: 0; }
+.st-stage-head { display: none; }
+
+/* Floating mini preview (phones only; the script shows it while the big preview is off screen) */
+.st-mini { position: fixed; right: 12px; bottom: calc(88px + env(safe-area-inset-bottom)); z-index: 55; display: grid; gap: 4px; padding: 5px 5px 6px; border: 0; border-radius: 14px; background: var(--ink); box-shadow: var(--shadow-lg); cursor: pointer; animation: rise 0.25s var(--ease); }
+.st-mini canvas { display: block; width: 66px; height: auto; border-radius: 9px; background: #000; }
+.st-mini span { display: flex; align-items: center; justify-content: center; gap: 3px; color: var(--bg); font: 600 10.5px/1 var(--f); }
+.st-mini span svg { width: 9px; height: 9px; }
+
+@media (max-width: 900px) {
+  /* Edit first, then preview + export as the last step */
+  .studio { gap: 12px; }
+  .st-panel { order: 1; gap: 10px; }
+  .st-stage { order: 2; }
+  .st-stage-head { display: flex; align-items: center; gap: 10px; }
+  .st-stage-head h2 { margin: 0; font-size: 17px; font-weight: 800; letter-spacing: -0.02em; }
+  .st-screen { width: min(100%, calc(62vh * var(--arn))); }
+  .st-reset { padding: 4px 4px 0; }
+}
+@media (max-width: 560px) {
+  .page-head:has(+ .studio) p { display: none; }
+  .st-sec .st-sec-head { padding: 14px; gap: 8px; }
+  .st-sec-head .st-sub { display: none; }
+  .st-sec-body { padding: 0 14px 16px; }
+  .st-prod { grid-template-columns: 56px minmax(0, 1fr); }
+  .st-prod-photo, .st-prod-photo img { width: 56px; height: 74px; }
+  .st-prod-row { grid-template-columns: minmax(0, 1fr) 84px; }
+  .st-tpls { grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); gap: 8px; }
+}
+/* Opening a step scrolls its header to just below the sticky top bar */
+.st-sec, .st-stage { scroll-margin-top: 78px; }
+@media (max-width: 900px) {
+  /* Template shelves become swipeable rows instead of a long grid */
+  .st-tpls { display: flex; gap: 8px; overflow-x: auto; scroll-snap-type: x proximity; margin: 0 -14px; padding: 2px 14px 8px; scrollbar-width: none; overscroll-behavior-x: contain; }
+  .st-tpls::-webkit-scrollbar { display: none; }
+  .st-tpl { flex: 0 0 96px; scroll-snap-align: start; }
+  .st-tpl b { font-size: 12px; }
+  .st-tgroup-head span { flex-basis: 100%; }
+}
+
+/* Products (shop templates): one list, photo + details per row */
+.st-prod { grid-template-columns: 64px minmax(0, 1fr) auto; }
+.st-prod-acts { grid-column: 3; grid-row: 1; display: flex; flex-direction: column; gap: 2px; }
+.st-prod-acts .btn.icon { width: 30px; min-height: 28px; font-size: 15px; }
+.st-prod-acts .btn.icon[disabled] { visibility: hidden; }
+.st-prod-acts svg { width: 15px; height: 15px; }
+.st-prod-f { grid-column: 2; grid-row: 1; }
+.st-prod-add { margin-top: 0; }
+.st-prod-add .muted { font-size: 12.5px; color: var(--ink-3); }
+@media (max-width: 560px) { .st-prod { grid-template-columns: 56px minmax(0, 1fr) auto; } }
