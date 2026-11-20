@@ -1,14 +1,17 @@
 {
   "name": "toasty-posty",
   "version": "1.0.0",
-  "description": "Toasty Posty: a free, open-source, self-hosted social scheduler. Connect X, Bluesky, Reddit, TikTok and Instagram; draft with Claude or OpenAI; keys never leave your machine.",
+  "description": "Toasty Posty: a free, open-source, self-hosted social scheduler. Connect X, Bluesky, Reddit, TikTok and Instagram; draft with Claude, OpenAI or ZeroSignal; keys never leave your machine.",
   "type": "module",
   "main": "server/index.js",
   "scripts": {
     "start": "node server/index.js",
     "dev": "node --watch server/index.js",
+    "prestart": "node scripts/vendor.mjs",
+    "predev": "node scripts/vendor.mjs",
+    "vendor": "node scripts/vendor.mjs --force",
     "brand": "node scripts/brand.mjs",
-    "build": "node scripts/site.mjs"
+    "build": "node scripts/vendor.mjs && node scripts/site.mjs"
   },
   "engines": {
     "node": ">=20"
@@ -16,7 +19,15 @@
   "license": "MIT",
   "dependencies": {
     "@anthropic-ai/sdk": "^1.8.0",
+    "@galaxypay/use-wallet-lute": "^1.1.0",
+    "@perawallet/use-wallet-pera": "^1.0.0",
+    "@txnlab/use-wallet": "^5.4.1",
+    "@txnlab/use-wallet-defly": "^5.4.1",
+    "@txnlab/zerosignal": "^0.21.0",
     "@vercel/blob": "^2.9.0",
+    "algosdk": "^3.9.0",
+    "buffer": "^6.0.3",
+    "esbuild": "^0.28.2",
     "express": "^4.22.3",
     "fast-xml-parser": "^5.12.0",
     "multer": "^2.5.0",

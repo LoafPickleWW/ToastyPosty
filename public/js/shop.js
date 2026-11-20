@@ -115,3 +115,6 @@ export async function fillFromLink(p, api) {
   p.store = r.site || '';
   return { filled, amazon, store: r.site, note: r.note || '' };
 }
+
+// A ShopMy collection (a whole board of products) rather than one product.
+export const isCollectionLink = (url) => /^https?:\/\/(?:www\.)?shopmy\.us\/(?:shop\/)?collections\/(?:public\/|quick\/|embed\/)?\d+/i.test(String(url || '').trim());

@@ -2,7 +2,7 @@
 
 **All the posts that are fit to toast.**
 
-A free, open-source social media scheduler from [LoafPickle Worldwide](https://loafpickle.com). Connect **X, Bluesky, Reddit, Instagram and TikTok**, write once, check a proof for each platform, then post now or schedule it. Add a **Claude** or **OpenAI** key to get caption drafts, rewrites, alt text and AI images.
+A free, open-source social media scheduler from [LoafPickle Worldwide](https://loafpickle.com). Connect **X, Bluesky, Reddit, Instagram and TikTok**, write once, check a proof for each platform, then post now or schedule it. Add a **Claude** or **OpenAI** key, or use **ZeroSignal** (private, pay-per-request AI with no key), to get caption drafts, rewrites, alt text and AI images.
 
 There's no sign-up, no database and no telemetry. Your accounts, keys, posts and media are saved **in your own browser**. The server is a stateless relay: it forwards each request to the network or AI provider and keeps nothing. Run it on your own computer or deploy it to Vercel.
 
@@ -39,8 +39,8 @@ Limits on Vercel: each request can carry about 4MB, so big videos (TikTok, Reels
 | Page | What it does |
 |---|---|
 | **Compose** | Pick the accounts, write once, add photos or video. Each platform gets a live preview shaped like a slice of toast, with a toast icon that browns as you near the character limit. Your picked accounts load into a mint 1950s **toaster** as slices with each network's logo branded in. Turn the **browning dial** to choose when it posts, then pull the **lever**: the slices sink, the slots glow, and they pop back up toasted (or burnt, with the exact error). |
-| **Video** | A studio that turns photos into a vertical video for TikTok and Reels. Pick one of 10 templates based on what's working in short-form right now: **Photo Dump** (beat-synced cuts with a zoom punch), **Soft Memories** (slow zooms, crossfades, warm grain), **Before & After** (slider wipe between pairs), **Countdown** (a "top 5" that counts down to #1), **Carousel Swipe**, **Collage Reveal**, **Polaroid Pile**, **Shop the Look** (a product card with name, brand and price on each photo, then a "shop it all" end card; paste product links and each becomes a slide with its store photo), **Vintage Reel** (film grade, sprockets, date stamp) and **Glitch Cut**. Add as many captions as you like with 12 fonts (including TikTok Sans), 7 styles (outline, TikTok box, subtitle, shadow, sticker, glow, plain), any colour, and animations like word-by-word and karaoke highlight. Drag captions on the video to move them, drag the corner to resize, and time each one to the whole video or to certain photos. Add a song, export a 1080p MP4 (WebM where a browser can't make MP4), then download it or drop it straight into a post (Shop the Look carries its product links along). Everything renders in your browser, and the project is saved there until you hit **Clear project**. |
-| **Shop this post** | In Compose, add affiliate product links (LTK, ShopMy, Amazon or any store). Paste a link and the name, brand, price and photo fill themselves in from the store page (your referral link is still the one that gets posted; some stores block previews, and Amazon only gives the name). Each platform gets them in the form that works there: clickable links on X, Bluesky and Reddit, and a "link in bio" or "comment KEYWORD" call to action on Instagram and TikTok, where caption links aren't clickable. An **#ad** disclosure goes at the top of the post, your **Amazon Associates tag** is added to Amazon links, typed prices are left off Amazon products (their rules), and TikTok posts get its commercial-content disclosure (Your brand / Branded content). Set your tag, shop link and disclosure wording in Settings. |
+| **Video** | A studio that turns photos into a vertical video for TikTok and Reels. Pick from 15 templates on two shelves. **Photo videos**: based on what's working in short-form right now: **Photo Dump** (beat-synced cuts with a zoom punch), **Soft Memories** (slow zooms, crossfades, warm grain), **Before & After** (slider wipe between pairs), **Countdown** (a "top 5" that counts down to #1), **Carousel Swipe**, **Collage Reveal**, **Polaroid Pile**, **Vintage Reel** (film grade, sprockets, date stamp) and **Glitch Cut**. **Shop videos** (product names, prices and links built in; paste product links and each becomes a slide with its store photo): **Shop the Look** (a draggable product card on each photo), **Price Reveal** (a "$??" sticker stamps in the price), **Bag Haul** (finds spring out of a shopping bag), **The Receipt** (a receipt prints each item and rings up the total), **Piece by Piece** (opens on the whole look, then calls out each piece) and **Add to Cart** (a shopping-app sheet with a tapped button and a cart counter). Each ends on a "shop it" card with your call to action. Add as many captions as you like with 12 fonts (including TikTok Sans), 7 styles (outline, TikTok box, subtitle, shadow, sticker, glow, plain), any colour, and animations like word-by-word and karaoke highlight. Drag captions on the video to move them, drag the corner to resize, and time each one to the whole video or to certain photos. Add a song, export a 1080p MP4 (WebM where a browser can't make MP4), then download it or drop it straight into a post (Shop the Look carries its product links along). Everything renders in your browser, and the project is saved there until you hit **Clear project**. |
+| **Shop this post** | In Compose, add affiliate product links (LTK, ShopMy, Amazon or any store). Paste a link and the name, brand, price and photo fill themselves in from the store page (your referral link is still the one that gets posted; some stores block previews, and Amazon only gives the name). Paste several links at once to add them all. Paste a **ShopMy collection** link and, after a one-time opt-in, it opens a picker of every product in it (photo, brand, price and its ShopMy link); this uses ShopMy's app data rather than an official API, so it may stop working if ShopMy changes it. Each platform gets them in the form that works there: clickable links on X, Bluesky and Reddit, and a "link in bio" or "comment KEYWORD" call to action on Instagram and TikTok, where caption links aren't clickable. An **#ad** disclosure goes at the top of the post, your **Amazon Associates tag** is added to Amazon links, typed prices are left off Amazon products (their rules), and TikTok posts get its commercial-content disclosure (Your brand / Branded content). Set your tag, shop link and disclosure wording in Settings. |
 | **Queue** | The toast rack. Each day of the week is a slice that browns with how many posts it holds. Posts are grouped by day: Scheduled, Drafts, Posted, Failed. Failed posts show the platform's exact error, and **Retry failed** only re-sends to the accounts that failed. |
 | **Feeds** | Columns side by side, from two kinds of sources. **From the web** (free, no keys): track a topic by keywords (searches Google News, Hacker News and Reddit at once), or follow any RSS/Atom link, a Medium writer, Substack, YouTube channel, subreddit, public Bluesky or Mastodon profile, GitHub releases, or Hacker News. **From your accounts**: your timelines, searches and subreddits. Any column can be filtered to posts that mention certain words, and matches are highlighted. Columns refresh every 5 minutes. Hit **Toast this** on any item to start a post about it, and with an AI key, **Write a post about this** drafts one in your voice with the link included. |
 | **Accounts** | One card per network. Connect as many accounts as you like, and every card has a **How to get keys** guide. |
@@ -74,14 +74,26 @@ Paste the `https://….trycloudflare.com` address into **Settings → Public URL
 
 ## AI (optional, and locked until you add a key)
 
-| Feature | Claude key | OpenAI key |
-|---|---|---|
-| Draft a version for every selected platform (from notes and/or the attached image) | ✅ | ✅ |
-| Rewrite: shorter, add a hook, fix grammar, less salesy | ✅ | ✅ |
-| Alt text from an image | ✅ | ✅ |
-| Generate images | — | ✅ |
+| Feature | Claude key | OpenAI key | ZeroSignal |
+|---|---|---|---|
+| Draft a version for every selected platform (from notes and/or the attached image) | ✅ | ✅ | ✅ (images need a model that sees them) |
+| Rewrite: shorter, add a hook, fix grammar, less salesy | ✅ | ✅ | ✅ |
+| Alt text from an image | ✅ | ✅ | ✅ (with a model that sees images) |
+| Generate images | — | ✅ | ✅ (with an image model) |
 
 Without a key, the AI tools show a padlock and a link to add one. Claude defaults to `claude-opus-5-5`; you can pick Sonnet or Haiku in Settings. Add a **house voice** there too (how you write, words you'd never use) and every draft follows it.
+
+### ZeroSignal (no key, pay per request)
+
+[ZeroSignal](https://github.com/TxnLab/zerosignal) is a private inference network on Algorand. Each request is encrypted **in your browser**, sent through a relay so the node that answers never learns who you are, and paid per request in USDC. It runs entirely in the browser tab, so the Toasty Posty server never sees the prompt or the wallet.
+
+1. **Settings → ZeroSignal → Create an AI wallet** (or import a 25-word Algorand phrase). This is a small wallet just for AI, saved in your browser like your other keys (and in your backup).
+2. **Top it up**: connect Pera, Defly or Lute and send it a few USDC plus about 1 ALGO. The first top-up also opts it in to USDC. You approve each top-up in your wallet. **Check balance** shows anything still missing.
+3. **Load models**, pick a text model (ones marked "sees images" can also write from photos and alt text) and optionally an image model, then **Save models**.
+
+Why a separate AI wallet: ZeroSignal signs every request, and browser wallets can't do that kind of signing, so a wallet popup on every caption isn't possible. Your main wallet is only used to top up. It runs on Algorand mainnet and spends real USDC.
+
+The browser bundle for ZeroSignal and use-wallet (`public/js/vendor/zerosignal.js`) is built by `scripts/vendor.mjs`, which runs automatically before `npm start`, `npm run dev` and `npm run build`. Run `npm run vendor` to rebuild it by hand.
 
 ## Where your data lives
 
@@ -106,7 +118,7 @@ server/
   index.js          Local runner: serves the app + relay on localhost
   media-host.js     Public media for Instagram: Vercel Blob or a temp folder
   rss.js            RSS/Atom fetching + topic searches
-  ai.js             Claude / OpenAI helpers
+  ai.js             Claude / OpenAI helpers (prompts live in public/js/ai-prompts.js)
   platforms/        x.js · bluesky.js · reddit.js · instagram.js · tiktok.js
 public/
   index.html        App shell + SEO metadata
@@ -115,11 +127,15 @@ public/
   js/
     db.js           IndexedDB storage
     local-api.js    The in-browser "kitchen": data, scheduling, publishing
+    ai-prompts.js   Prompts and output schemas shared by every AI provider
+    zerosignal.js   ZeroSignal in the browser: AI wallet, models, requests, use-wallet top-ups
+    vendor/         Built bundle of the ZeroSignal SDK + use-wallet (git-ignored)
     studio/         engine.js: video templates, captions and MP4 export (canvas + MediaRecorder)
     views/          compose · studio · rack · spread · pantry · settings
 scripts/
   site.mjs          Vercel build: copy public/ to dist/ and fill in SITE_URL
   brand.mjs         Render share image + icons from the logo
+  vendor.mjs        Bundle the ZeroSignal SDK + use-wallet for the browser (esbuild)
 ```
 
 No framework. Edit a file and refresh.

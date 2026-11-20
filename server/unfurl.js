@@ -198,20 +198,89 @@ function fromUrlOnly(finalUrl, reason) {
   return { name, brand: '', price: '', currency: '', image: '', site: host, finalUrl, found: false, partial: true, note: `${reason}, so only the name came through (from the link). Add the price and a photo yourself.` };
 }
 
+function sniffImage(b) {
+  if (b.length < 12) return null;
+  if (b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return 'image/jpeg';
+  if (b[0] === 0x89 && b.toString('latin1', 1, 4) === 'PNG') return 'image/png';
+  if (b.toString('latin1', 0, 4) === 'GIF8') return 'image/gif';
+  if (b.toString('latin1', 0, 4) === 'RIFF' && b.toString('latin1', 8, 12) === 'WEBP') return 'image/webp';
+  if (b.toString('latin1', 4, 8) === 'ftyp' && /avif|avis/.test(b.toString('latin1', 8, 12))) return 'image/avif';
+  return null;
+}
+
 // Product photos for the Video Studio: browsers can't read pixels from other sites, so it comes through here.
 export async function image(url) {
   const { res, timer } = await fetchPublic(url, { accept: 'image/avif,image/webp,image/png,image/jpeg,image/*;q=0.8' });
   try {
-    const type = res.headers.get('content-type') || '';
-    if (!res.ok || !type.startsWith('image/')) { res.body?.cancel().catch(() => {}); throw bad('Couldn’t load that product photo.', 502); }
+    const declared = (res.headers.get('content-type') || '').split(';')[0].trim();
+    if (!res.ok || /^(text|application\/(json|xml|javascript))/i.test(declared)) { res.body?.cancel().catch(() => {}); throw bad('Couldn’t load that product photo.', 502); }
     const len = Number(res.headers.get('content-length') || 0);
     if (len > MAX_IMAGE) { res.body?.cancel().catch(() => {}); throw bad('That product photo is too big.'); }
     const buf = await readCapped(res, MAX_IMAGE + 1);
     if (buf.length > MAX_IMAGE) throw bad('That product photo is too big.');
-    return { type: type.split(';')[0], data: buf };
+    // Some hosts label photos loosely ("jpeg", "binary/octet-stream"), so trust the file's own bytes.
+    const type = sniffImage(buf);
+    if (!type) throw bad('That link isn’t a photo.', 502);
+    return { type, data: buf };
   } finally {
     clearTimeout(timer);
   }
+}
+
+// ---------- ShopMy collections (opt-in) ----------
+// A shopmy.us/collections/<id> page is an empty app shell; its products come from ShopMy's own app data
+// endpoint, which isn't an official API. Only used when the person turns it on in Settings, and only the
+// product details are passed back: nothing about the collection's owner.
+const SHOPMY_COLLECTION = /^https?:\/\/(?:www\.)?shopmy\.us\/(?:shop\/)?collections\/(?:public\/|quick\/|embed\/)?(\d+)/i;
+export const isShopMyCollection = (url) => SHOPMY_COLLECTION.test(String(url || '').trim());
+
+// ShopMy stores photos in a locked bucket and serves them from its image CDN.
+function shopmyImage(u) {
+  const m = String(u).match(/^https:\/\/production-shopmyshelf-(uploads|pins)\.s3[.-][a-z0-9-]*\.?amazonaws\.com\/(.+)$/i);
+  if (!m) return u;
+  return m[1].toLowerCase() === 'pins' ? `https://static.shopmy.us/pins/${m[2]}` : `https://img.shopmy.us/${m[2]}`;
+}
+
+export async function collection(url) {
+  const m = String(url || '').trim().match(SHOPMY_COLLECTION);
+  if (!m) throw bad('That isn’t a ShopMy collection link (shopmy.us/collections/…).');
+  const { res, timer } = await fetchPublic(`https://apiv3.shopmy.us/api/Collections/${m[1]}`, { accept: 'application/json' });
+  let d;
+  try {
+    if (res.status === 404) throw bad('ShopMy couldn’t find that collection. It may be private or deleted.', 502);
+    if (!res.ok) throw bad(`ShopMy answered ${res.status}. Try again in a bit, or paste the product links instead.`, 502);
+    d = JSON.parse((await readCapped(res, MAX_HTML * 2)).toString('utf8'));
+  } catch (e) {
+    if (e instanceof SyntaxError) throw bad('ShopMy sent something we couldn’t read. It may have changed how collections load; paste the product links instead.', 502);
+    throw e;
+  } finally {
+    clearTimeout(timer);
+  }
+  if (d.private) throw bad('That collection is private.');
+  const lines = (s) => String(s || '').split('\n').map((x) => x.trim()).filter(Boolean);
+  const items = (Array.isArray(d.pins) ? d.pins : [])
+    .filter((p) => p && !p.isHidden && p.id)
+    .slice(0, 150)
+    .map((p) => {
+      const pr = p.product || {};
+      const t = lines(p.title);
+      const brand = pr.AllBrand_name || (t.length > 1 ? t[0] : '');
+      const store = p.merchant_data?.name || p.domain || '';
+      const amazon = /(^|\.)amazon\./i.test(p.domain || '') || /amazon/i.test(store);
+      const price = pr.fallbackPrice != null && !amazon ? String(pr.fallbackPrice) : '';
+      return {
+        name: (pr.title || (t.length > 1 ? t.slice(1).join(' ') : t[0]) || '').slice(0, 140),
+        brand: String(brand).slice(0, 60),
+        price: price && (pr.fallbackPriceCurrency || 'USD') !== 'USD' ? `${price} ${pr.fallbackPriceCurrency}` : price,
+        image: amazon ? '' : shopmyImage(pr.image || p.image || ''),
+        url: `https://go.shopmy.us/p-${p.id}`, // the creator's own tracking link for this product
+        store,
+        category: pr.Category_name || '',
+      };
+    })
+    .filter((x) => x.name);
+  if (!items.length) throw bad('That collection has no products we could read.', 502);
+  return { title: String(d.name || 'ShopMy collection').slice(0, 120), description: String(d.description || '').slice(0, 300), source: 'ShopMy', items };
 }
 
 export const _test = { parse, privateIp };

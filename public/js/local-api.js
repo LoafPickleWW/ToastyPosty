@@ -3,6 +3,8 @@
 // Anything that has to reach a platform goes through the stateless /api relay, carrying only what it needs.
 import * as idb from './db.js';
 import { finalText } from './shop.js';
+import * as zsai from './zerosignal.js';
+import { captionRequest, rewriteRequest, altRequest } from './ai-prompts.js';
 
 const CODE_KEY = 'toastyposty.code';
 const uid = (p = '') => p + crypto.getRandomValues(new Uint32Array(2)).reduce((s, n) => s + n.toString(16).padStart(8, '0'), '').slice(0, 12);
@@ -23,7 +25,12 @@ const EMPTY = () => ({
     shopUrl: '',
     disclosure: '',
     amazonDisclosure: '',
-    ai: { anthropicKey: '', openaiKey: '', textProvider: 'auto', claudeModel: 'claude-opus-5-5', openaiTextModel: 'gpt-5', openaiImageModel: 'gpt-image-1' },
+    shopmyCollections: false, // opt-in: import ShopMy collections via ShopMy's app data (not an official API)
+    ai: {
+      anthropicKey: '', openaiKey: '', textProvider: 'auto', claudeModel: 'claude-opus-5-5', openaiTextModel: 'gpt-5', openaiImageModel: 'gpt-image-1',
+      // ZeroSignal: the AI wallet's recovery phrase (secret), its address, network and chosen models.
+      zsMnemonic: '', zsAddress: '', zsTextModel: '', zsTextVision: false, zsImageModel: '',
+    },
   },
 });
 
@@ -121,7 +128,12 @@ function publicAccount(a) {
   return { ...a, credentials };
 }
 function publicSettings(s) {
-  return { ...s, ai: { ...s.ai, anthropicKey: mask(s.ai.anthropicKey), openaiKey: mask(s.ai.openaiKey), hasAnthropic: !!s.ai.anthropicKey, hasOpenAI: !!s.ai.openaiKey } };
+  return { ...s, ai: { ...s.ai, anthropicKey: mask(s.ai.anthropicKey), openaiKey: mask(s.ai.openaiKey), zsMnemonic: s.ai.zsMnemonic ? '••••' : '', hasAnthropic: !!s.ai.anthropicKey, hasOpenAI: !!s.ai.openaiKey, hasZeroSignal: !!s.ai.zsMnemonic } };
+}
+// What the server relay gets: everything but the ZeroSignal key, which never leaves this browser.
+function relaySettings() {
+  const { zsMnemonic, ...ai } = db.settings.ai;
+  return { ...db.settings, ai };
 }
 function mergeSecrets(existing = {}, incoming = {}) {
   const out = { ...existing };
@@ -134,10 +146,17 @@ function mergeSecrets(existing = {}, incoming = {}) {
 }
 function providers() {
   const ai = db.settings.ai;
+  const zsText = !!(ai.zsMnemonic && ai.zsTextModel);
+  const zsVision = zsText && !!ai.zsTextVision;
   const text = ai.textProvider === 'openai' && ai.openaiKey ? 'openai'
     : ai.textProvider === 'claude' && ai.anthropicKey ? 'claude'
-    : ai.anthropicKey ? 'claude' : ai.openaiKey ? 'openai' : null;
-  return { text, image: ai.openaiKey ? 'openai' : null, vision: ai.anthropicKey ? 'claude' : ai.openaiKey ? 'openai' : null };
+    : ai.textProvider === 'zerosignal' && zsText ? 'zerosignal'
+    : ai.anthropicKey ? 'claude' : ai.openaiKey ? 'openai' : zsText ? 'zerosignal' : null;
+  // Images go to whoever writes the captions when it can see them, else whichever key can.
+  const vision = text === 'zerosignal' && zsVision ? 'zerosignal'
+    : ai.anthropicKey ? 'claude' : ai.openaiKey ? 'openai' : zsVision ? 'zerosignal' : null;
+  const image = ai.openaiKey ? 'openai' : ai.zsMnemonic && ai.zsImageModel ? 'zerosignal' : null;
+  return { text, image, vision };
 }
 const fail = (msg) => { throw new Error(msg); };
 const find = (list, id, what) => list.find((x) => x.id === id) || fail(`${what} not found`);
@@ -269,6 +288,73 @@ async function restore(file) {
   await saveNow();
 }
 
+// ---------- AI keys: reveal, and a small keys file to bring them back after a cleared browser ----------
+async function setPayer(mnemonic) {
+  const phrase = String(mnemonic || '').trim().split(/\s+/).join(' ');
+  if (!phrase) fail('Paste the 25-word recovery phrase.');
+  const words = phrase.split(' ').length;
+  const address = await zsai.payerAddress(phrase).catch(() => fail(words === 25
+    ? 'That recovery phrase has a typo: a word isn’t in the list or the last word doesn’t match. Check it and try again.'
+    : `That’s ${words} words. ZeroSignal AI wallets use a 25-word Algorand recovery phrase.`));
+  Object.assign(db.settings.ai, { zsMnemonic: phrase, zsAddress: address });
+  zsai.forget();
+}
+const KEY_FIELDS = { anthropic: 'anthropicKey', openai: 'openaiKey', zerosignal: 'zsMnemonic' };
+const AI_EXPORT = ['anthropicKey', 'openaiKey', 'textProvider', 'claudeModel', 'openaiTextModel', 'openaiImageModel', 'zsMnemonic', 'zsTextModel', 'zsTextVision', 'zsImageModel'];
+
+async function keys(action, body) {
+  const ai = db.settings.ai;
+  if (action === 'reveal') {
+    const field = KEY_FIELDS[body.which] || fail('Unknown key');
+    return { value: ai[field] || fail('That key isn’t set.') };
+  }
+  if (action === 'export') {
+    return { app: 'toasty-posty-keys', version: 1, exportedAt: new Date().toISOString(), ai: Object.fromEntries(AI_EXPORT.filter((k) => ai[k] !== undefined && ai[k] !== '').map((k) => [k, ai[k]])) };
+  }
+  if (action === 'import') {
+    // Takes a keys file or a full backup (its AI settings only).
+    const incoming = body?.app === 'toasty-posty-keys' ? body.ai : body?.app === 'toasty-posty' ? body.db?.settings?.ai : null;
+    if (!incoming || typeof incoming !== 'object') fail('That isn’t a Toasty Posty keys file or backup.');
+    const picked = Object.fromEntries(AI_EXPORT.filter((k) => k !== 'zsMnemonic' && incoming[k] !== undefined).map((k) => [k, incoming[k]]));
+    db.settings.ai = mergeSecrets(ai, picked);
+    if (incoming.zsMnemonic) await setPayer(incoming.zsMnemonic);
+    zsai.forget();
+    await saveNow();
+    const got = ['anthropicKey', 'openaiKey', 'zsMnemonic'].filter((k) => incoming[k]).map((k) => ({ anthropicKey: 'Claude key', openaiKey: 'OpenAI key', zsMnemonic: 'ZeroSignal AI wallet' })[k]);
+    return { settings: publicSettings(db.settings), providers: providers(), imported: got };
+  }
+  fail('Unknown keys request');
+}
+
+// ---------- ZeroSignal (runs in this tab; the relay never sees the AI wallet) ----------
+async function zerosignal(action, body) {
+  const ai = db.settings.ai;
+  const done = async () => { await saveNow(); return { settings: publicSettings(db.settings), providers: providers() }; };
+  const needWallet = () => ai.zsMnemonic || fail('Create or import a ZeroSignal AI wallet first.');
+  switch (action) {
+    case 'new': {
+      const { mnemonic, address } = await zsai.newPayer();
+      Object.assign(ai, { zsMnemonic: mnemonic, zsAddress: address });
+      zsai.forget();
+      return done();
+    }
+    case 'import': {
+      await setPayer(body.mnemonic);
+      return done();
+    }
+    case 'reveal': needWallet(); return { mnemonic: ai.zsMnemonic };
+    case 'models': needWallet(); return { models: await zsai.models(ai) };
+    case 'checkup': needWallet(); return zsai.checkup(ai);
+    case 'balances': needWallet(); return zsai.balances(ai);
+    case 'optin': needWallet(); return zsai.optIn(ai);
+    case 'wallets': return zsai.wallets();
+    case 'connect': return { address: await zsai.connectWallet(body.wallet) };
+    case 'disconnect': await zsai.disconnectWallet(); return { ok: true };
+    case 'topup': needWallet(); return zsai.topUp(ai, { usdc: body.usdc, algo: body.algo });
+  }
+  fail('Unknown ZeroSignal request');
+}
+
 // ---------- the router the views talk to ----------
 export async function handle(path, { method = 'GET', body = {}, form } = {}) {
   const [p] = path.split('?');
@@ -277,6 +363,10 @@ export async function handle(path, { method = 'GET', body = {}, form } = {}) {
   const M = method.toUpperCase();
 
   // Product link previews: name / brand / price / photo from an affiliate link.
+  if (res === 'collection') {
+    if (!db.settings.shopmyCollections) fail('Collection import is off. Turn it on in Settings → Selling & affiliate links.');
+    return net('/api/collection', { body: { url: body.url, optIn: true } });
+  }
   if (res === 'unfurl') return id === 'image' ? productImage(body.url) : net('/api/unfurl', { body: { url: body.url } });
 
   if (res === 'state') {
@@ -408,18 +498,50 @@ export async function handle(path, { method = 'GET', body = {}, form } = {}) {
   if (res === 'settings' && M === 'PUT') {
     const s = db.settings;
     for (const k of ['theme', 'publicBaseUrl', 'brandVoice', 'defaultHashtags', 'amazonTag', 'shopUrl', 'disclosure', 'amazonDisclosure']) if (typeof body[k] === 'string') s[k] = body[k].trim();
+    if (typeof body.shopmyCollections === 'boolean') s.shopmyCollections = body.shopmyCollections;
     if (body.ai) {
-      const { clearAnthropic, clearOpenAI, ...rest } = body.ai;
+      const { clearAnthropic, clearOpenAI, clearZeroSignal, zsMnemonic, zsAddress, ...rest } = body.ai; // the AI wallet is only set through /api/zs
       s.ai = mergeSecrets(s.ai, rest);
       if (clearAnthropic) s.ai.anthropicKey = '';
       if (clearOpenAI) s.ai.openaiKey = '';
+      if (clearZeroSignal) { s.ai.zsMnemonic = ''; s.ai.zsAddress = ''; zsai.forget(); }
     }
     await saveNow();
     return { settings: publicSettings(s), providers: providers() };
   }
 
+  if (res === 'zs') return zerosignal(id, body);
+  if (res === 'keys') return keys(id, body);
+
   if (res === 'ai') {
-    const settings = db.settings;
+    const settings = relaySettings();
+    const p = providers();
+    const zs = db.settings.ai;
+    const mediaBlob = async (mediaId) => {
+      const m = mediaId && db.media.find((x) => x.id === mediaId && x.mime.startsWith('image/'));
+      return m ? idb.getMedia(m.id) : null;
+    };
+    if (id === 'caption' && p.text === 'zerosignal') {
+      // A photo goes to ZeroSignal if its model can see; otherwise the Claude/OpenAI path below handles it.
+      const photo = await mediaBlob(body.mediaId);
+      if (!photo || !p.vision || p.vision === 'zerosignal') {
+        const image = p.vision === 'zerosignal' ? photo : null;
+        return zsai.jsonCall(zs, { ...captionRequest(settings, { notes: body.notes || '', platforms: body.platforms || [], tone: body.tone, hasImage: !!image }), image });
+      }
+    }
+    if (id === 'rewrite' && p.text === 'zerosignal') return zsai.jsonCall(zs, rewriteRequest(settings, { text: body.text, instruction: body.instruction }));
+    if (id === 'alt' && p.vision === 'zerosignal') {
+      const m = find(db.media, body.mediaId, 'Image');
+      const r = await zsai.jsonCall(zs, { ...altRequest(), image: await idb.getMedia(m.id) });
+      m.alt = r.alt;
+      save();
+      return r;
+    }
+    if (id === 'image' && p.image === 'zerosignal') {
+      const blob = await zsai.generateImage(zs, { prompt: body.prompt, size: body.size });
+      const [w, h] = (body.size || '1024x1024').split('x').map(Number);
+      return addMedia(blob, { name: 'ai-toast.' + (blob.type.split('/')[1] || 'png'), width: w, height: h, extra: { ai: true, prompt: body.prompt } });
+    }
     if (id === 'caption') {
       const payload = { settings, notes: body.notes || '', platforms: body.platforms || [], tone: body.tone };
       if (body.mediaId) {

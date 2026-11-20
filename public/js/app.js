@@ -52,7 +52,7 @@ function renderChrome() {
   // replaceChildren() prints null as the text "null", so drop empty slots first.
   document.getElementById('status').replaceChildren(...[
     next ? h('a.pill.scheduled.next', { href: '#/queue', style: { textDecoration: 'none' } }, 'Next: ' + fmtWhen(next.scheduledAt)) : null,
-    h('a.pill.ai' + (ai ? '' : '.off'), { href: '#/settings', title: ai ? 'AI drafting is on' : 'Add an AI key in Settings' }, ai ? (ai === 'claude' ? 'Claude' : 'OpenAI') : 'AI off'),
+    h('a.pill.ai' + (ai ? '' : '.off'), { href: '#/settings', title: ai ? 'AI drafting is on' : 'Add an AI key in Settings' }, ai ? ({ claude: 'Claude', openai: 'OpenAI', zerosignal: 'ZeroSignal' }[ai]) : 'AI off'),
   ].filter(Boolean));
 }
 

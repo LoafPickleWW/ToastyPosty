@@ -108,6 +108,11 @@ app.post('/api/unfurl', wrap(async (req, res) => {
   if (!req.body?.url) throw bad('Paste a link.');
   res.json(await unfurl.unfurl(req.body.url));
 }));
+// ShopMy collections: only when the person has opted in (Settings), since it uses ShopMy's app data, not an official API.
+app.post('/api/collection', wrap(async (req, res) => {
+  if (req.body?.optIn !== true) throw bad('Collection import is off. Turn it on in Settings → Selling & affiliate links.');
+  res.json(await unfurl.collection(req.body.url));
+}));
 app.post('/api/unfurl/image', wrap(async (req, res) => {
   if (!req.body?.url) throw bad('No image link.');
   const img = await unfurl.image(req.body.url);

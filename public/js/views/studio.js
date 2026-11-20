@@ -3,10 +3,11 @@
 import { h, icon, pop, modal, busy, confirmBox, pastedImages } from '../ui.js';
 import { state, api, media, mediaUrl } from '../api.js';
 import {
-  FORMATS, FONTS, STYLES, ANIMS, COLORS, LOOKS, TEMPLATE_LIST, TEMPLATES,
+  FORMATS, FONTS, STYLES, ANIMS, COLORS, LOOKS, TEMPLATE_LIST, TEMPLATES, isShopTemplate,
   renderFrame, timeline, captionWindow, CARD_SCALE, paceOf, loadSlide, ensureFonts, recordVideo, pickMime, newCaption, fontCss,
 } from '../studio/engine.js';
-import { blankShop, cleanUrl, isAmazon, fillFromLink } from '../shop.js';
+import { blankShop, cleanUrl, isAmazon, fillFromLink, isCollectionLink } from '../shop.js';
+import { openCollection, OFF_NOTE } from '../collection-picker.js';
 import * as idb from '../db.js';
 
 const DRAFT_KEY = 'toastyposty.draft';
@@ -327,7 +328,7 @@ export default function studio(root, { arg }) {
         n > 1 ? h('button.btn.sm.quiet', { type: 'button', onclick: () => { proj.slides.reverse(); changed(); } }, 'Reverse') : null,
         n ? h('button.btn.sm.quiet.danger', { type: 'button', onclick: () => { proj.slides.forEach((s) => URL.revokeObjectURL(s.url)); proj.slides = []; changed(); } }, 'Clear') : null),
       n ? h('p.st-hint', hint) : '',
-      proj.template === 'shop' ? productsEditor() : '',
+      isShopTemplate(proj.template) ? productsEditor() : '',
       fileIn);
   }
 
@@ -360,10 +361,21 @@ export default function studio(root, { arg }) {
     return s;
   }
   async function addFromLinks(text) {
-    const links = [...new Set(String(text).split(/[\s,]+/).map(cleanUrl).filter(Boolean))].slice(0, 15);
-    if (!links.length) return pop('Paste one or more product links, one per line.', { kind: 'err' });
+    const all = [...new Set(String(text).split(/[\s,]+/).map(cleanUrl).filter(Boolean))];
+    const collections = all.filter(isCollectionLink);
+    const links = all.filter((u) => !isCollectionLink(u)).slice(0, 15);
+    if (!all.length) return pop('Paste one or more product links, one per line.', { kind: 'err' });
     const missed = [];
     if (!proj.slides.length) proj.fit = 'fit'; // store photos are square shots on white: show them whole
+    // ShopMy collections (opt-in): pick which products become slides. Details come with them, no page reading needed.
+    for (const url of collections) {
+      let picked = [];
+      try { picked = await openCollection(url, { max: 20, verb: 'Add to video' }); if (picked === null) { pop(OFF_NOTE, { title: 'Not loaded' }); continue; } }
+      catch (e) { pop(e.message, { kind: 'err', title: 'Couldn’t load that collection' }); continue; }
+      for (const p of picked) { try { proj.slides.push(await productSlide(p)); changed(); } catch {} }
+      if (picked.length) pop(`Added ${picked.length} product${picked.length === 1 ? '' : 's'} from the collection.`, { title: 'Collection loaded' });
+    }
+    if (!links.length) return;
     for (const url of links) {
       const p = { name: '', brand: '', price: '', url };
       try { const r = await fillFromLink(p, api); if (r.note) missed.push(`${r.store}: name only (the store blocks previews)`); } catch (e) { missed.push(`${new URL(url).hostname.replace(/^www\./, '')}: ${e.message}`); }
@@ -379,7 +391,7 @@ export default function studio(root, { arg }) {
     const cardOut = h('output', Math.round((proj.shopCard?.scale ?? 1) * 100) + '%');
     const cardSize = h('input', { type: 'range', min: CARD_SCALE[0], max: CARD_SCALE[1], step: 0.01, value: proj.shopCard?.scale ?? 1, 'aria-label': 'Product card size',
       oninput: (e) => { proj.shopCard = { ...(proj.shopCard || {}), scale: Number(e.target.value) }; cardOut.textContent = Math.round(proj.shopCard.scale * 100) + '%'; dirty = true; } });
-    const linksIn = h('textarea.input', { rows: 2, placeholder: 'Paste product links here (LTK, ShopMy, any store), one per line', 'aria-label': 'Product links' });
+    const linksIn = h('textarea.input', { rows: 2, placeholder: 'Paste product links (LTK, ShopMy, any store), one per line, or a ShopMy collection link', 'aria-label': 'Product links' });
     const rows = proj.slides.map((s, i) => {
       const p = (s.product ||= { name: '', brand: '', price: '', url: '' });
       const read = async () => {
@@ -414,7 +426,7 @@ export default function studio(root, { arg }) {
         else proj.slides.forEach((s, i) => { if (fromPost[i] && !(s.product?.name || s.product?.url)) s.product = { name: '', brand: '', price: '', ...fromPost[i] }; });
         changed();
       }, 'Loading…') }, icon('tag'), n ? `Fill in from my post’s ${fromPost.length} product${fromPost.length === 1 ? '' : 's'}` : `Make slides from my post’s ${fromPost.length} product${fromPost.length === 1 ? '' : 's'}`) : '',
-      h('div.st-field.st-cardpos', h('span', 'Product card size ', cardOut),
+      h('div.st-field.st-cardpos', { hidden: proj.template !== 'shop' }, h('span', 'Product card size ', cardOut),
         h('div.st-row', cardSize,
           h('button.btn.sm.quiet', { type: 'button', disabled: !proj.shopCard, onclick: () => { proj.shopCard = null; if (selected === '__card') selected = null; changed(); } }, 'Reset position')),
         h('small', 'Or drag the card on the video to move it, and drag its yellow corner dot to resize.')),
@@ -430,12 +442,20 @@ export default function studio(root, { arg }) {
     const f = fmt();
     const tpl = TEMPLATES[proj.template];
     thumbs = [];
-    const cards = TEMPLATE_LIST.map((tp) => {
+    const card = (tp) => {
       const c = h('canvas', { width: 120, height: Math.round((120 * f.h) / f.w), 'aria-hidden': 'true' });
       thumbs.push([tp.id, c.getContext('2d')]);
       return h('button.st-tpl', { type: 'button', 'aria-pressed': String(tp.id === proj.template), onclick: () => { proj.template = tp.id; t = 0; if (playing) play(); changed(); } },
         h('span.st-tpl-art', c, h('span.st-tag', tp.tag)), h('b', tp.name));
-    });
+    };
+    // Two shelves: photo videos, and shop videos (product cards, prices, links).
+    const groups = [
+      { id: 'photo', title: 'Photo videos', sub: 'Turn any set of photos into a video', list: TEMPLATE_LIST.filter((tp) => !isShopTemplate(tp.id)) },
+      { id: 'shop', title: 'Shop videos', sub: 'Sell your finds: product names, prices and links built in', list: TEMPLATE_LIST.filter((tp) => isShopTemplate(tp.id)) },
+    ];
+    const cards = groups.map((g) => h('div.st-tgroup' + (g.id === 'shop' ? '.shop' : ''),
+      h('div.st-tgroup-head', h('b', g.title), h('span', g.sub)),
+      h('div.st-tpls', g.list.map(card))));
     const per = paceOf(proj);
     const unit = tpl.unit || 'photo';
     const pace = h('input', { type: 'range', min: tpl.min, max: tpl.max, step: 0.05, value: per, 'aria-label': `Seconds per ${unit}`,
@@ -443,7 +463,7 @@ export default function studio(root, { arg }) {
     const paceLabel = () => { const p = paceOf(proj); return `${p.toFixed(2)}s per ${unit}` + (proj.template === 'dump' || proj.template === 'glitch' ? ` · ≈${Math.round(60 / p)} BPM` : ''); };
     const paceOut = h('output', paceLabel());
     tplEl.replaceChildren(
-      h('div.st-tpls', cards),
+      ...cards,
       h('div.st-tpl-info', h('b', tpl.name), h('p', tpl.blurb)),
       h('label.field.st-pace', h('span', 'Pace ', paceOut), pace,
         h('small', proj.template === 'dump' ? 'Tip: one photo per beat. 60 ÷ your song’s BPM = seconds per photo.' : 'Slide to speed up or slow down.')));
@@ -642,7 +662,7 @@ export default function studio(root, { arg }) {
     const words = proj.captions.map((c) => c.text.trim()).filter(Boolean);
     if (!d.text?.trim() && words.length) d.text = words[0];
     // Shop the Look: carry the products (with their links) into the post's "Shop this post".
-    const prods = proj.template === 'shop' ? proj.slides.map((s) => s.product).filter((p) => p && (p.name || p.url)) : [];
+    const prods = isShopTemplate(proj.template) ? proj.slides.map((s) => s.product).filter((p) => p && (p.name || p.url)) : [];
     if (prods.length) {
       d.shop = { ...blankShop(), ...(d.shop || {}) };
       for (const p of prods) {

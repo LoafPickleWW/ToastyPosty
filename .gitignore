@@ -5,3 +5,4 @@ data/
 .vercel
 scripts/.fonts
 dist
+public/js/vendor

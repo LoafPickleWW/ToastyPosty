@@ -2,7 +2,9 @@
 import { h, icon, pb, ava, pop, modal, busy, toastIcon, toLocalInput, fmtWhen, fmtTime, pastedImages } from '../ui.js';
 import { BRAND_PATHS } from '../brands.js';
 import { state, api, load, platform, account, media, mediaUrl } from '../api.js';
-import { blankShop, finalText, networkOf, networkName, isAmazon, cleanUrl, CTAS, CLICKABLE, affiliateLinksIn, fillFromLink } from '../shop.js';
+import { blankShop, finalText, networkOf, networkName, isAmazon, cleanUrl, CTAS, CLICKABLE, affiliateLinksIn, fillFromLink, isCollectionLink } from '../shop.js';
+import { openCollection, OFF_NOTE } from '../collection-picker.js';
+const AI_NAMES = { claude: 'Claude', openai: 'OpenAI', zerosignal: 'ZeroSignal' };
 
 const DRAFT_KEY = 'toastyposty.draft';
 const blank = () => ({ id: null, text: '', overrides: {}, mediaIds: [], targets: [], scheduledAt: null, shop: blankShop() });
@@ -134,6 +136,46 @@ export default function compose(root, { arg }) {
     }
     return out.slice(0, 12);
   }
+  // Paste many links: each becomes a product, then they're read one after another.
+  // A ShopMy collection link: pick products from it (asks to turn the import on the first time).
+  async function addCollection(url, at) {
+    const sh = d.shop;
+    const target = sh.products[at];
+    let picked = [];
+    try {
+      const r = await openCollection(url, { max: 30, verb: 'Add to post' });
+      if (r === null) { if (target) { target.url = url; target._status = OFF_NOTE; } renderShop(); saveLocal(d); return; }
+      picked = r;
+    }
+    catch (e) { if (target) { target.url = url; target._status = e.message; } renderShop(); return; }
+    const made = picked.filter((p) => !sh.products.some((x) => x.url === p.url))
+      .map((p) => ({ name: p.name, brand: p.brand, price: p.price, url: p.url, image: p.image, _looked: p.url, _status: `From the ShopMy collection${p.store ? ` · ${p.store}` : ''}.` }));
+    if (!made.length) { if (picked.length) pop('Those products are already in this post.', { kind: 'err' }); return; }
+    const blank = target && (!target.url || isCollectionLink(target.url)) && !target.name;
+    sh.products.splice(blank ? at : at + 1, blank ? 1 : 0, ...made);
+    renderShop(); saveLocal(d); renderPreviews();
+    pop(`Added ${made.length} product${made.length === 1 ? '' : 's'} from the collection.`, { title: 'Collection loaded' });
+  }
+  async function addLinks(urls, at) {
+    const sh = d.shop;
+    const made = urls.filter((u) => !sh.products.some((p) => p.url === u)).slice(0, 30).map((url) => ({ name: '', brand: '', price: '', url, _status: 'Waiting…' }));
+    if (!made.length) return pop('Those products are already in this post.', { kind: 'err' });
+    const target = sh.products[at];
+    const blank = target && !target.url && !target.name;
+    sh.products.splice(blank ? at : at + 1, blank ? 1 : 0, ...made);
+    renderShop(); saveLocal(d);
+    let full = 0, partial = 0, failed = 0;
+    for (const p of made) {
+      p._status = 'Reading…'; renderShop();
+      try {
+        const r = await fillFromLink(p, api);
+        p._looked = p.url;
+        if (r.note) { partial++; p._status = r.note; } else { full++; p._status = r.filled.length ? `Filled in ${r.filled.join(', ')} from ${r.store}.` : 'Nothing new to fill in.'; }
+      } catch (err) { failed++; p._status = err.message; }
+      renderShop(); saveLocal(d); renderPreviews();
+    }
+    pop(`${made.length} products added: ${full} filled in${partial ? `, ${partial} name only` : ''}${failed ? `, ${failed} to fill in yourself` : ''}.`, { title: 'Links loaded' });
+  }
   function renderShop() {
     const sh = d.shop;
     const touchShop = () => { saveLocal(d); renderPreviews(); };
@@ -166,10 +208,16 @@ export default function compose(root, { arg }) {
       return h('div.prod',
         p.image ? h('img.prod-img', { src: p.image, alt: '', referrerpolicy: 'no-referrer', loading: 'lazy', onerror: (e) => e.target.replaceWith(h('span.prod-n', String(i + 1))) }) : h('span.prod-n', String(i + 1)),
         h('div.prod-f',
-          h('input.input', { value: p.url, placeholder: 'Paste your product link (LTK, ShopMy, Amazon…)', 'aria-label': `Link for product ${i + 1}`, inputmode: 'url',
+          h('input.input', { value: p.url, placeholder: 'Paste a product link, or several at once (LTK, ShopMy, Amazon…)', 'aria-label': `Link for product ${i + 1}`, inputmode: 'url',
             oninput: (e) => { p.url = e.target.value.trim(); const n = networkOf(cleanUrl(p.url)); badge.textContent = n ? networkName(n) : 'Link'; badge.classList.toggle('on', !!n); touchShop(); },
-            onpaste: () => setTimeout(() => { p.url = cleanUrl(p.url) || p.url; lookup(); }, 0),
-            onchange: (e) => { p.url = cleanUrl(e.target.value) || e.target.value.trim(); e.target.value = p.url; touchShop(); lookup(); } }),
+            onpaste: (e) => {
+              // Several links at once (e.g. copied from a list or a spreadsheet): one product per link.
+              const urls = [...new Set((e.clipboardData?.getData('text') || '').match(/https?:\/\/[^\s,"'<>]+/g) || [])].map(cleanUrl).filter(Boolean);
+              if (urls.length === 1 && isCollectionLink(urls[0])) { e.preventDefault(); addCollection(urls[0], i); return; }
+              if (urls.length > 1) { e.preventDefault(); addLinks(urls, i); return; }
+              setTimeout(() => { p.url = cleanUrl(p.url) || p.url; lookup(); }, 0);
+            },
+            onchange: (e) => { p.url = cleanUrl(e.target.value) || e.target.value.trim(); e.target.value = p.url; touchShop(); if (isCollectionLink(p.url)) { p._looked = p.url; addCollection(p.url, i); } else lookup(); } }),
           status,
           h('div.prod-row',
             h('input.input', { value: p.name, placeholder: 'What is it? e.g. Linen button-up', 'aria-label': `Name of product ${i + 1}`, oninput: set('name') }),
@@ -216,7 +264,7 @@ export default function compose(root, { arg }) {
           h('div.row',
             canAI
               ? h('button.btn.butter.sm', { onclick: (e) => busy(e.currentTarget, writeAbout, 'Writing…') }, icon('sparkle'), 'Write a post about this')
-              : h('a.btn.sm.locked', { href: '#/settings', title: 'Add a Claude or OpenAI key in Settings' }, icon('lock'), 'Write a post about this'),
+              : h('a.btn.sm.locked', { href: '#/settings', title: 'Add a Claude or OpenAI key, or a ZeroSignal wallet, in Settings' }, icon('lock'), 'Write a post about this'),
             h('span.muted', { style: { fontSize: '12.5px' } }, canAI ? 'Uses your house voice and keeps the link.' : 'Needs an AI key. Or write your own take below.'))),
         h('button.btn.quiet.icon', { 'aria-label': 'Dismiss', title: 'Dismiss', onclick: () => { delete d.inspiration; saveLocal(d); renderInspo(); } }, h('span', { style: { fontSize: '20px', lineHeight: 1 } }, '×'))));
   }
@@ -251,7 +299,7 @@ export default function compose(root, { arg }) {
     const p = state.providers || {};
     if (!p.text) {
       aiSec.replaceChildren(h('div.lock-note', icon('lock'),
-        h('div', h('b', { style: { color: 'var(--ink)' } }, 'AI drafting is locked. '), 'Add a Claude or OpenAI key to draft captions for each platform, rewrite posts, write alt text and generate images. '),
+        h('div', h('b', { style: { color: 'var(--ink)' } }, 'AI drafting is locked. '), 'Add a Claude or OpenAI key, or set up ZeroSignal (private, pay-per-request with USDC), to draft captions for each platform, rewrite posts, write alt text and generate images. '),
         h('a', { href: '#/settings' }, 'Add key →')));
       return;
     }
@@ -268,7 +316,7 @@ export default function compose(root, { arg }) {
       h('div.tones', h('span', 'Tone'), TONES.map((t) => h('button', { type: 'button', 'aria-pressed': String(t === tone), onclick: (e) => { tone = t; e.currentTarget.parentElement.querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', String(b === e.currentTarget))); } }, t))),
       p.image
         ? h('div.img-gen', prompt, size, h('button.btn', { onclick: (e) => busy(e.currentTarget, () => generate(prompt.value, size.value), 'Generating…') }, icon('image'), 'Generate'))
-        : h('div.img-gen', h('a.btn.sm.locked', { href: '#/settings', title: 'Image generation needs an OpenAI key' }, icon('lock'), 'Generate image · needs an OpenAI key')));
+        : h('div.img-gen', h('a.btn.sm.locked', { href: '#/settings', title: 'Image generation needs an OpenAI key or a ZeroSignal image model' }, icon('lock'), 'Generate image · needs OpenAI or ZeroSignal')));
   }
   async function draftAll() {
     const plats = [...new Set(d.targets.map((t) => account(t)?.platform).filter(Boolean))];
@@ -551,7 +599,7 @@ This post sells these products through my affiliate links: ${prods.map((p) => [p
         h('div.composer-sec', text, textMeta),
         h('div.composer-sec', h('div.sec-label', h('span', 'Media'), h('a', { href: '#/studio/post', title: 'Turn your photos into a TikTok / Reels video' }, 'Make a video from photos →')), mediaRow, fileInput),
         h('div.composer-sec', h('div.sec-label', h('span', 'Shop this post'), d.shop.products.length ? h('span.muted', { style: { fontSize: '12.5px' } }, d.shop.products.length + ' linked') : null), shopSec),
-        h('div.composer-sec', h('div.sec-label', h('span', 'AI assist'), state.providers?.text ? h('span.muted', { style: { fontSize: '12.5px' } }, state.providers.text === 'claude' ? 'Claude' : 'OpenAI') : null), aiSec),
+        h('div.composer-sec', h('div.sec-label', h('span', 'AI assist'), state.providers?.text ? h('span.muted', { style: { fontSize: '12.5px' } }, AI_NAMES[state.providers.text]) : null), aiSec),
         dock),
       previews));
 

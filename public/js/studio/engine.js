@@ -304,6 +304,69 @@ function shopEnd(ctx, e, lt) {
   ctx.restore();
 }
 
+// ---------- Shop video helpers ----------
+export const priceText = (p) => {
+  if (!p?.price || isAmazon(p.url)) return '';
+  const v = String(p.price).trim();
+  return /^[\d.,]+$/.test(v) ? '$' + v : v;
+};
+function ellipsize(ctx, s, w) {
+  let t = String(s || '');
+  if (ctx.measureText(t).width <= w) return t;
+  while (t.length > 1 && ctx.measureText(t + '…').width > w) t = t.slice(0, -1);
+  return t.trimEnd() + '…';
+}
+function wrapText(ctx, s, w, max = 2) {
+  const words = String(s || '').split(/\s+/).filter(Boolean);
+  const lines = [];
+  let line = '';
+  for (const wd of words) {
+    const tryL = line ? line + ' ' + wd : wd;
+    if (line && ctx.measureText(tryL).width > w) { lines.push(line); line = wd; } else line = tryL;
+  }
+  if (line) lines.push(line);
+  if (lines.length > max) { const rest = lines.slice(max - 1).join(' '); lines.length = max - 1; lines.push(ellipsize(ctx, rest, w)); }
+  return lines.map((l) => ellipsize(ctx, l, w));
+}
+function starPath(ctx, x, y, R, r, n, rot = 0) {
+  ctx.beginPath();
+  for (let k = 0; k < n * 2; k++) {
+    const a = rot + (k * Math.PI) / n, rad = k % 2 ? r : R;
+    ctx[k ? 'lineTo' : 'moveTo'](x + Math.cos(a) * rad, y + Math.sin(a) * rad);
+  }
+  ctx.closePath();
+}
+function sparkle(ctx, x, y, r, alpha) {
+  if (alpha <= 0) return;
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.fillStyle = '#FFFFFF';
+  starPath(ctx, x, y, r, r * 0.22, 4, -Math.PI / 2);
+  ctx.fill();
+  ctx.restore();
+}
+// A product photo centred on white (product shots usually are).
+function onWhite(ctx, s, x, y, w, h, pad = 0.06) {
+  ctx.fillStyle = '#FFFFFF';
+  ctx.fillRect(x, y, w, h);
+  const sc = Math.min((w * (1 - pad * 2)) / s.w, (h * (1 - pad * 2)) / s.h);
+  const dw = s.w * sc, dh = s.h * sc;
+  ctx.drawImage(s.img, x + (w - dw) / 2, y + (h - dh) / 2, dw, dh);
+}
+function cartIcon(ctx, x, y, size, color) {
+  const s = size / 24;
+  ctx.save();
+  ctx.translate(x - size / 2, y - size / 2);
+  ctx.scale(s, s);
+  ctx.strokeStyle = color; ctx.lineWidth = 2.2; ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(2, 3); ctx.lineTo(5, 3); ctx.lineTo(7.5, 15); ctx.lineTo(19, 15); ctx.lineTo(21, 7); ctx.lineTo(6, 7); ctx.stroke();
+  ctx.fillStyle = color;
+  ctx.beginPath(); ctx.arc(9, 19.5, 1.8, 0, 7); ctx.fill();
+  ctx.beginPath(); ctx.arc(17, 19.5, 1.8, 0, 7); ctx.fill();
+  ctx.restore();
+}
+const priceNum = (p) => { const t = priceText(p); const n = parseFloat(t.replace(/[^\d.]/g, '')); return Number.isFinite(n) && /\d/.test(t) ? n : null; };
+
 // ---------- Templates ----------
 const LIST = [
   {
@@ -322,7 +385,7 @@ const LIST = [
     },
   },
   {
-    id: 'shop', name: 'Shop the Look', tag: 'Shoppable', per: 2.4, min: 1.2, max: 5, unit: 'product',
+    id: 'shop', group: 'shop', name: 'Shop the Look', tag: 'Classic', per: 2.4, min: 1.2, max: 5, unit: 'product',
     blurb: 'Each photo gets a product card with its name, brand and price, then a “shop it all” end card with your call to action. Fill in the products under Photos.',
     plan: (n, per) => even(n, per, 2),
     draw(ctx, e) {
@@ -665,9 +728,425 @@ const LIST = [
       }
     },
   },
+  // ===== Shop videos: each one shows the product in the first second (the hooks that hold attention) =====
+  {
+    id: 'pricereveal', group: 'shop', name: 'Price Reveal', tag: 'Reveal', per: 2.6, min: 1.6, max: 5, unit: 'product',
+    blurb: 'Opens tight on the product with a wobbling “$??” sticker that stamps in the real price. Guess-the-price hooks keep people watching to the reveal.',
+    plan: (n, per) => even(n, per, 2),
+    draw(ctx, e) {
+      if (e.t >= e.n * e.per) return shopEnd(ctx, e, e.t - e.n * e.per);
+      const { i, local, s } = step(e);
+      const u = e.u, reveal = Math.min(1.15, e.per * 0.55);
+      const L = e.settled ? Math.max(local, reveal + 0.6) : local;
+      const k = easeOut(clamp(L / 0.5));
+      full(ctx, s, e, 1.2 - 0.17 * k + 0.03 * clamp((L - 0.5) / e.per));
+      if (i > 0 && local < 0.08 && !e.settled) { ctx.fillStyle = `rgba(255,255,255,${0.6 * (1 - local / 0.08)})`; ctx.fillRect(0, 0, e.W, e.H); }
+      const p = productFor(s, i), price = priceText(p);
+      // name pill drops in from the top
+      const nb = back(clamp((L - 0.12) / 0.4));
+      if (nb > 0) {
+        ctx.save();
+        ctx.translate(e.W / 2, e.H * 0.15 - (1 - nb) * 220 * u);
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        if (p.brand) {
+          ctx.font = `600 ${28 * u}px "DM Mono", monospace`;
+          ctx.fillStyle = '#fff'; ctx.shadowColor = 'rgba(0,0,0,0.6)'; ctx.shadowBlur = 12 * u;
+          ctx.fillText(p.brand.toUpperCase(), 0, -74 * u);
+          ctx.shadowColor = 'transparent';
+        }
+        ctx.font = fontCss('tiktok', 46 * u);
+        const name = ellipsize(ctx, p.name || `Product ${i + 1}`, e.W * 0.76);
+        const nw = ctx.measureText(name).width + 76 * u;
+        ctx.fillStyle = '#fff';
+        rr(ctx, -nw / 2, -46 * u, nw, 92 * u, 46 * u); ctx.fill();
+        ctx.fillStyle = '#111';
+        ctx.fillText(name, 0, 3 * u);
+        ctx.restore();
+      }
+      // the sticker: "$??" wobbles, then stamps in the price
+      if (L <= 0.35) return;
+      const before = L < reveal;
+      const R = 170 * u, sx = e.W * 0.7, sy = e.H * (e.H / e.W > 1.6 ? 0.56 : 0.62);
+      const a = before ? back(clamp((L - 0.35) / 0.35)) : 1;
+      const stamp = before ? 1 : 1 + 0.45 * (1 - easeOut(clamp((L - reveal) / 0.3)));
+      ctx.save();
+      ctx.translate(sx, sy);
+      ctx.rotate(before ? Math.sin(L * 16) * 0.1 : -0.16);
+      ctx.scale(a * stamp, a * stamp);
+      ctx.shadowColor = 'rgba(0,0,0,0.35)'; ctx.shadowBlur = 30 * u; ctx.shadowOffsetY = 10 * u;
+      ctx.fillStyle = before ? '#FFE14D' : '#D7263D';
+      starPath(ctx, 0, 0, R, R * 0.84, 18); ctx.fill();
+      ctx.shadowColor = 'transparent';
+      const label = before ? '$??' : price || 'SHOP IT';
+      let fs = 96 * u;
+      ctx.font = `400 ${fs}px "Anton", Impact, sans-serif`;
+      while (ctx.measureText(label).width > R * 1.35 && fs > 30 * u) { fs -= 4 * u; ctx.font = `400 ${fs}px "Anton", Impact, sans-serif`; }
+      ctx.fillStyle = before ? '#111' : '#fff';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(label, 0, 6 * u);
+      ctx.restore();
+      if (!before && L - reveal < 0.45) {
+        const rk = (L - reveal) / 0.45;
+        ctx.save();
+        ctx.strokeStyle = `rgba(255,255,255,${0.8 * (1 - rk)})`; ctx.lineWidth = 12 * u * (1 - rk);
+        ctx.beginPath(); ctx.arc(sx, sy, R * (1 + rk * 0.8), 0, 7); ctx.stroke();
+        ctx.restore();
+      }
+    },
+  },
+  {
+    id: 'bag', group: 'shop', name: 'Bag Haul', tag: 'Haul', per: 2.2, min: 1.4, max: 4, unit: 'product',
+    blurb: 'Every find springs up out of a shopping bag with a little sparkle, like unpacking a haul on camera. Best with product photos.',
+    plan: (n, per) => even(n, per, 2),
+    draw(ctx, e) {
+      if (e.t >= e.n * e.per) return shopEnd(ctx, e, e.t - e.n * e.per);
+      const { i, local, s } = step(e);
+      const u = e.u, tall = e.H / e.W > 1.6;
+      const L = e.settled ? Math.max(local, 1.2) : local;
+      const [c1, c2] = [['#FFF3CC', '#FFD45C'], ['#E1F2E9', '#A9DCC6'], ['#FBE2E5', '#FFB4C2']][i % 3];
+      const g = ctx.createLinearGradient(0, 0, 0, e.H);
+      g.addColorStop(0, c1); g.addColorStop(1, c2);
+      ctx.fillStyle = g; ctx.fillRect(0, 0, e.W, e.H);
+      const bagCol = ['#D7263D', '#2F7D62', '#24170F'][i % 3];
+      const bw = e.W * 0.68, bh = Math.min(e.H * 0.27, bw * 0.72), bx = (e.W - bw) / 2, by = e.H - bh - (tall ? e.H * 0.12 : 50 * u);
+      // handle (behind the product)
+      ctx.strokeStyle = bagCol; ctx.lineWidth = 18 * u; ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.moveTo(bx + bw * 0.3, by + 6 * u); ctx.bezierCurveTo(bx + bw * 0.3, by - 150 * u, bx + bw * 0.7, by - 150 * u, bx + bw * 0.7, by + 6 * u); ctx.stroke();
+      // bag opening (inside)
+      ctx.fillStyle = 'rgba(0,0,0,0.28)';
+      rr(ctx, bx + 6 * u, by - 16 * u, bw - 12 * u, 36 * u, 14 * u); ctx.fill();
+      // the product rising out of the bag
+      const rise = back(clamp((L - 0.08) / 0.62));
+      const cw = e.W * 0.6, ch = Math.min(cw * 1.2, by - e.H * 0.1);
+      const cy = lerp(by + ch / 2 + 20 * u, by - ch * 0.5 - 10 * u, rise);
+      ctx.save();
+      ctx.beginPath(); ctx.rect(0, 0, e.W, by + 4 * u); ctx.clip();
+      ctx.translate(e.W / 2, cy);
+      ctx.rotate((rand(i, 3) - 0.5) * 0.12 * (1 - clamp((L - 0.7) / 0.5)) + (rand(i, 4) - 0.5) * 0.05);
+      ctx.shadowColor = 'rgba(0,0,0,0.25)'; ctx.shadowBlur = 40 * u; ctx.shadowOffsetY = 16 * u;
+      ctx.fillStyle = '#fff';
+      rr(ctx, -cw / 2, -ch / 2, cw, ch, 32 * u); ctx.fill();
+      ctx.shadowColor = 'transparent';
+      ctx.save(); rr(ctx, -cw / 2, -ch / 2, cw, ch, 32 * u); ctx.clip();
+      onWhite(ctx, s, -cw / 2, -ch / 2, cw, ch);
+      ctx.restore();
+      ctx.restore();
+      // sparkles as it pops out
+      const sp = clamp((L - 0.45) / 0.6);
+      if (sp > 0 && sp < 1) for (let k = 0; k < 6; k++) {
+        const ang = (k / 6) * Math.PI * 2 + rand(i, k) * 0.6;
+        const dist = (cw * 0.55 + 40 * u) * (0.7 + sp * 0.5);
+        sparkle(ctx, e.W / 2 + Math.cos(ang) * dist, by - ch * 0.5 + Math.sin(ang) * dist * 0.8, (22 + rand(k, i) * 18) * u, Math.sin(sp * Math.PI));
+      }
+      // bag front with the product name on it
+      ctx.fillStyle = bagCol;
+      ctx.beginPath(); ctx.moveTo(bx, by); ctx.lineTo(bx + bw, by); ctx.lineTo(bx + bw - 22 * u, by + bh); ctx.lineTo(bx + 22 * u, by + bh); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = 'rgba(255,255,255,0.12)'; ctx.fillRect(bx, by, bw, 10 * u);
+      const p = productFor(s, i), price = priceText(p);
+      const tk = clamp((L - 0.35) / 0.35);
+      ctx.save();
+      ctx.globalAlpha = tk;
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      if (p.brand) { ctx.font = `600 ${26 * u}px "DM Mono", monospace`; ctx.fillStyle = 'rgba(255,255,255,0.75)'; ctx.fillText(ellipsize(ctx, p.brand.toUpperCase(), bw - 80 * u), e.W / 2, by + bh * 0.26); }
+      ctx.font = fontCss('tiktok', 46 * u); ctx.fillStyle = '#fff';
+      const lines = wrapText(ctx, p.name || `Find ${i + 1}`, bw - 90 * u, 2);
+      lines.forEach((ln, li) => ctx.fillText(ln, e.W / 2, by + bh * (lines.length > 1 ? 0.5 : 0.56) + li * 54 * u));
+      ctx.restore();
+      // price tag hanging off the bag
+      if (price) {
+        const swing = Math.sin(L * 5) * 0.12 * (1 - clamp((L - 0.6) / 1.2));
+        ctx.save();
+        ctx.globalAlpha = tk;
+        ctx.translate(bx + bw - 40 * u, by + 26 * u);
+        ctx.rotate(0.22 + swing);
+        ctx.font = `400 ${52 * u}px "Anton", Impact, sans-serif`;
+        const tw = ctx.measureText(price).width + 56 * u;
+        ctx.strokeStyle = '#24170F'; ctx.lineWidth = 3 * u;
+        ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, 40 * u); ctx.stroke();
+        ctx.fillStyle = '#FFE14D';
+        rr(ctx, -tw / 2, 40 * u, tw, 84 * u, 14 * u); ctx.fill();
+        ctx.fillStyle = '#24170F'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText(price, 0, 84 * u);
+        ctx.restore();
+      }
+    },
+  },
+  {
+    id: 'receipt', group: 'shop', name: 'The Receipt', tag: 'Proof', per: 2.0, min: 1.2, max: 4, unit: 'product',
+    blurb: 'A receipt prints each find as it appears, then rings up the total. A “here’s everything I bought” hook that reads as proof.',
+    plan: (n, per) => even(n, per, 2.6),
+    draw(ctx, e) {
+      const u = e.u, tall = e.H / e.W > 1.6;
+      const tail = e.t >= e.n * e.per, tt = tail ? e.t - e.n * e.per : 0;
+      const { i, local, s } = step(e);
+      const L = e.settled ? Math.max(local, 1.2) : local;
+      cover(ctx, s.blur, 0, 0, e.W, e.H, 1.2);
+      ctx.fillStyle = 'rgba(20,12,8,0.5)'; ctx.fillRect(0, 0, e.W, e.H);
+      // the product card
+      const pw = e.W * 0.6, ph = tall ? e.H * 0.34 : e.H * 0.3, py = tall ? e.H * 0.08 : e.H * 0.05;
+      const ck = tail ? 1 : easeOut(clamp(L / 0.35));
+      ctx.save();
+      ctx.translate(e.W / 2 + (1 - ck) * e.W * 0.7, py + ph / 2);
+      ctx.rotate(-0.035 + (i % 2) * 0.07);
+      ctx.shadowColor = 'rgba(0,0,0,0.4)'; ctx.shadowBlur = 40 * u; ctx.shadowOffsetY = 16 * u;
+      ctx.fillStyle = '#fff'; rr(ctx, -pw / 2 - 14 * u, -ph / 2 - 14 * u, pw + 28 * u, ph + 28 * u, 22 * u); ctx.fill();
+      ctx.shadowColor = 'transparent';
+      onWhite(ctx, s, -pw / 2, -ph / 2, pw, ph, 0.03);
+      ctx.restore();
+      // the receipt
+      const rw = e.W * 0.78, rx = (e.W - rw) / 2, ry = py + ph + (tall ? 70 * u : 40 * u), lh = 56 * u;
+      const items = e.slides.map((sl, k) => productFor(sl, k));
+      const shown = tail ? e.n : i + 1;
+      const maxRows = Math.max(3, Math.floor((e.H - ry - (tail ? 420 : 200) * u) / lh));
+      const first = Math.max(0, shown - maxRows);
+      const rows = shown - first;
+      const total = items.slice(0, e.n).map(priceNum);
+      const hasTotal = total.some((x) => x != null);
+      const head = 150 * u, foot = tail ? (hasTotal ? 210 : 120) * u : 50 * u;
+      const rh = head + rows * lh + foot;
+      ctx.save();
+      ctx.shadowColor = 'rgba(0,0,0,0.35)'; ctx.shadowBlur = 30 * u; ctx.shadowOffsetY = 10 * u;
+      ctx.fillStyle = '#FFFDF8';
+      ctx.beginPath(); ctx.moveTo(rx, ry); ctx.lineTo(rx + rw, ry); ctx.lineTo(rx + rw, ry + rh);
+      const zz = 20 * u;
+      for (let x = rx + rw; x > rx; x -= zz) { ctx.lineTo(x - zz / 2, ry + rh + zz * 0.6); ctx.lineTo(Math.max(rx, x - zz), ry + rh); }
+      ctx.closePath(); ctx.fill();
+      ctx.restore();
+      ctx.save();
+      ctx.fillStyle = '#24170F'; ctx.textBaseline = 'middle';
+      ctx.font = fontCss('courier', 40 * u); ctx.textAlign = 'center';
+      ctx.fillText('* * * HAUL RECEIPT * * *', e.W / 2, ry + 52 * u);
+      ctx.font = fontCss('courier', 26 * u);
+      const d = new Date();
+      ctx.fillText(`${d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).toUpperCase()}   ${e.n} ITEM${e.n === 1 ? '' : 'S'}`, e.W / 2, ry + 96 * u);
+      ctx.strokeStyle = '#8F7B6A'; ctx.setLineDash([10 * u, 8 * u]); ctx.lineWidth = 2 * u;
+      ctx.beginPath(); ctx.moveTo(rx + 30 * u, ry + 128 * u); ctx.lineTo(rx + rw - 30 * u, ry + 128 * u); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.font = fontCss('courier', 34 * u);
+      for (let r = 0; r < rows; r++) {
+        const k = first + r, it = items[k];
+        const y = ry + head + r * lh + lh / 2 - 6 * u;
+        const pr = priceText(it) || '—';
+        let label = `${k + 1} ${(it.name || `Item ${k + 1}`).toUpperCase()}`;
+        const isNew = !tail && k === i;
+        const chars = isNew ? Math.floor((L - 0.25) * 45) : Infinity;
+        if (chars <= 0) continue;
+        ctx.textAlign = 'left';
+        ctx.fillText(ellipsize(ctx, label, rw - 90 * u - ctx.measureText(pr).width).slice(0, chars), rx + 30 * u, y);
+        if (chars > label.length * 0.6) { ctx.textAlign = 'right'; ctx.fillText(pr, rx + rw - 30 * u, y); }
+      }
+      if (tail) {
+        const fk = clamp(tt / 0.4);
+        const fy = ry + head + rows * lh;
+        ctx.globalAlpha = fk;
+        ctx.setLineDash([10 * u, 8 * u]);
+        ctx.beginPath(); ctx.moveTo(rx + 30 * u, fy); ctx.lineTo(rx + rw - 30 * u, fy); ctx.stroke();
+        ctx.setLineDash([]);
+        if (hasTotal) {
+          const sum = total.reduce((a, b) => a + (b || 0), 0);
+          ctx.font = fontCss('courier', 46 * u);
+          ctx.textAlign = 'left'; ctx.fillText('TOTAL', rx + 30 * u, fy + 62 * u);
+          ctx.textAlign = 'right'; ctx.fillText(`$${sum.toFixed(2)}`, rx + rw - 30 * u, fy + 62 * u);
+          if (total.some((x) => x == null)) { ctx.font = fontCss('courier', 22 * u); ctx.textAlign = 'center'; ctx.fillText('(ITEMS WITHOUT A PRICE NOT INCLUDED)', e.W / 2, fy + 112 * u); }
+        }
+        ctx.font = fontCss('courier', 30 * u); ctx.textAlign = 'center';
+        ctx.fillText('THANK YOU, COME AGAIN', e.W / 2, fy + (hasTotal ? 160 : 60) * u);
+      }
+      ctx.restore();
+      if (tail) {
+        const ck2 = back(clamp((tt - 0.5) / 0.4));
+        if (ck2 > 0) {
+          const cta = e.cta || '🔗 Link in bio';
+          ctx.save();
+          ctx.font = fontCss('tiktok', 50 * u);
+          const w = ctx.measureText(cta).width + 80 * u;
+          ctx.translate(e.W / 2, Math.min(e.H - 160 * u, ry + rh + 110 * u));
+          ctx.scale(ck2, ck2);
+          ctx.fillStyle = '#FFE14D'; rr(ctx, -w / 2, -50 * u, w, 100 * u, 50 * u); ctx.fill();
+          ctx.fillStyle = '#111'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+          ctx.fillText(cta, 0, 3 * u);
+          ctx.restore();
+        }
+      }
+    },
+  },
+  {
+    id: 'pieces', group: 'shop', name: 'Piece by Piece', tag: 'Outfit', per: 2.0, min: 1.2, max: 4, unit: 'piece',
+    blurb: 'Result first: opens on the whole look, then zooms into each piece with a callout for its name, brand and price. Made for outfits and room makeovers.',
+    plan(n, per) {
+      const intro = 1.8;
+      return { total: intro + n * per + 2, starts: [...Array(n)].map((_, i) => intro + i * per), intro };
+    },
+    draw(ctx, e) {
+      const u = e.u;
+      const end = e.plan.intro + e.n * e.per;
+      if (e.t >= end) return shopEnd(ctx, e, e.t - end);
+      if (e.t < e.plan.intro) {
+        // the whole look at once
+        const t = e.settled ? 1.5 : e.t;
+        ctx.fillStyle = '#F8F2E6'; ctx.fillRect(0, 0, e.W, e.H);
+        const m = Math.min(e.n, 6), cols = m <= 1 ? 1 : 2, rows = Math.ceil(m / cols), g = 18 * u;
+        const top = e.H * 0.2, areaH = e.H * 0.72, tw = (e.W - g * (cols + 1)) / cols, th = Math.min((areaH - g * (rows - 1)) / rows, tw * 1.25);
+        ctx.save();
+        ctx.globalAlpha = clamp(t / 0.25);
+        ctx.fillStyle = '#24170F'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.font = `400 ${130 * u}px "Anton", Impact, sans-serif`;
+        ctx.fillText('THE LOOK', e.W / 2, e.H * 0.1);
+        ctx.font = `500 ${30 * u}px "DM Mono", monospace`; ctx.fillStyle = '#8F7B6A';
+        ctx.fillText('piece by piece ↓', e.W / 2, e.H * 0.1 + 92 * u);
+        ctx.restore();
+        for (let k = 0; k < m; k++) {
+          const a = clamp((t - 0.15 - k * 0.1) / 0.3);
+          if (a <= 0) continue;
+          const x = g + (k % cols) * (tw + g), y = top + Math.floor(k / cols) * (th + g);
+          ctx.save();
+          ctx.globalAlpha = clamp(a * 2);
+          ctx.translate(x + tw / 2, y + th / 2); ctx.scale(lerp(0.7, 1, back(a)), lerp(0.7, 1, back(a)));
+          ctx.shadowColor = 'rgba(0,0,0,0.15)'; ctx.shadowBlur = 20 * u;
+          ctx.fillStyle = '#fff'; rr(ctx, -tw / 2, -th / 2, tw, th, 22 * u); ctx.fill();
+          ctx.shadowColor = 'transparent';
+          ctx.save(); rr(ctx, -tw / 2, -th / 2, tw, th, 22 * u); ctx.clip(); onWhite(ctx, e.slides[k], -tw / 2, -th / 2, tw, th); ctx.restore();
+          ctx.fillStyle = '#24170F'; ctx.beginPath(); ctx.arc(-tw / 2 + 36 * u, -th / 2 + 36 * u, 24 * u, 0, 7); ctx.fill();
+          ctx.fillStyle = '#fff'; ctx.font = fontCss('tiktok', 26 * u); ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+          ctx.fillText(String(k + 1), -tw / 2 + 36 * u, -th / 2 + 37 * u);
+          ctx.restore();
+        }
+        return;
+      }
+      const { i, local, s } = step(e);
+      const L = e.settled ? Math.max(local, 1.1) : local;
+      full(ctx, s, e, 1 + 0.08 * easeOut(clamp(L / 1.4)));
+      if (i === 0 && local < 0.3 && !e.settled) { ctx.fillStyle = `rgba(248,242,230,${1 - local / 0.3})`; ctx.fillRect(0, 0, e.W, e.H); }
+      const p = productFor(s, i), price = priceText(p);
+      // callout: a pulsing dot, a line drawing out to a label
+      const left = i % 2 === 1;
+      const ax = e.W * (left ? 0.62 : 0.38) + (rand(i, 2) - 0.5) * e.W * 0.08, ay = e.H * (0.42 + (rand(i, 5) - 0.5) * 0.12);
+      const bxEnd = left ? 60 * u : e.W - 60 * u, byEnd = ay + 230 * u;
+      const lk = easeInOut(clamp((L - 0.25) / 0.35));
+      const dk = back(clamp(L / 0.3));
+      ctx.save();
+      ctx.fillStyle = 'rgba(255,255,255,0.35)';
+      ctx.beginPath(); ctx.arc(ax, ay, (30 + 14 * Math.sin(L * 6)) * u * dk, 0, 7); ctx.fill();
+      ctx.fillStyle = '#fff'; ctx.strokeStyle = '#24170F'; ctx.lineWidth = 4 * u;
+      ctx.beginPath(); ctx.arc(ax, ay, 16 * u * dk, 0, 7); ctx.fill(); ctx.stroke();
+      if (lk > 0) {
+        const mx = ax + (left ? -1 : 1) * 60 * u, my = byEnd;
+        ctx.strokeStyle = '#fff'; ctx.lineWidth = 5 * u; ctx.lineCap = 'round';
+        ctx.shadowColor = 'rgba(0,0,0,0.4)'; ctx.shadowBlur = 8 * u;
+        ctx.beginPath(); ctx.moveTo(ax, ay);
+        const seg1 = Math.min(1, lk * 2), seg2 = Math.max(0, lk * 2 - 1);
+        ctx.lineTo(lerp(ax, mx, seg1), lerp(ay, my, seg1));
+        if (seg2 > 0) ctx.lineTo(lerp(mx, bxEnd, seg2), my);
+        ctx.stroke();
+        ctx.shadowColor = 'transparent';
+      }
+      const bk = clamp((L - 0.55) / 0.3);
+      if (bk > 0) {
+        ctx.font = fontCss('tiktok', 46 * u);
+        const maxW = e.W * 0.6;
+        const lines = wrapText(ctx, p.name || `Piece ${i + 1}`, maxW - 60 * u, 2);
+        const w = Math.min(maxW, Math.max(...lines.map((l) => ctx.measureText(l).width), 200 * u) + 60 * u);
+        const h = 40 * u + (p.brand ? 40 * u : 0) + lines.length * 54 * u + (price ? 64 * u : 0);
+        const x = left ? bxEnd : bxEnd - w, y = byEnd + 16 * u;
+        ctx.globalAlpha = bk;
+        ctx.translate(0, (1 - easeOut(bk)) * 30 * u);
+        ctx.shadowColor = 'rgba(0,0,0,0.3)'; ctx.shadowBlur = 30 * u; ctx.shadowOffsetY = 10 * u;
+        ctx.fillStyle = '#fff'; rr(ctx, x, y, w, h, 24 * u); ctx.fill();
+        ctx.shadowColor = 'transparent';
+        ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+        let ty = y + 40 * u;
+        if (p.brand) { ctx.font = `600 ${26 * u}px "DM Mono", monospace`; ctx.fillStyle = '#8F7B6A'; ctx.fillText(ellipsize(ctx, p.brand.toUpperCase(), w - 60 * u), x + 30 * u, ty); ty += 42 * u; }
+        ctx.font = fontCss('tiktok', 46 * u); ctx.fillStyle = '#111';
+        lines.forEach((ln) => { ctx.fillText(ln, x + 30 * u, ty); ty += 54 * u; });
+        if (price) { ctx.font = `400 ${50 * u}px "Anton", Impact, sans-serif`; ctx.fillStyle = '#D7263D'; ctx.fillText(price, x + 30 * u, ty + 6 * u); }
+      }
+      ctx.restore();
+    },
+  },
+  {
+    id: 'cart', group: 'shop', name: 'Add to Cart', tag: 'Tap to shop', per: 2.4, min: 1.6, max: 5, unit: 'product',
+    blurb: 'Looks like a shopping app: the product sheet slides up, “Add to cart” gets tapped and the cart count ticks up with every find.',
+    plan: (n, per) => even(n, per, 2),
+    draw(ctx, e) {
+      if (e.t >= e.n * e.per) return shopEnd(ctx, e, e.t - e.n * e.per);
+      const { i, local, s } = step(e);
+      const u = e.u, tall = e.H / e.W > 1.6, tap = Math.min(1.2, e.per * 0.55);
+      const L = e.settled ? Math.max(local, tap + 0.5) : local;
+      full(ctx, s, e, 1.04 + 0.03 * clamp(L / e.per));
+      const shade = ctx.createLinearGradient(0, e.H * 0.45, 0, e.H);
+      shade.addColorStop(0, 'rgba(0,0,0,0)'); shade.addColorStop(1, 'rgba(0,0,0,0.45)');
+      ctx.fillStyle = shade; ctx.fillRect(0, 0, e.W, e.H);
+      const p = productFor(s, i), price = priceText(p);
+      // bottom sheet
+      ctx.font = fontCss('tiktok', 50 * u);
+      const lines = wrapText(ctx, p.name || `Product ${i + 1}`, e.W - 140 * u, 2);
+      const sh = 120 * u + (p.brand ? 40 * u : 0) + lines.length * 60 * u + (price ? 70 * u : 0) + 150 * u + (tall ? e.H * 0.16 : 30 * u); // keep the button above TikTok/Reels' caption area
+      const up = easeOut(clamp(L / 0.42));
+      const sy = e.H - sh * up;
+      ctx.save();
+      ctx.shadowColor = 'rgba(0,0,0,0.35)'; ctx.shadowBlur = 40 * u;
+      ctx.fillStyle = '#fff'; rr(ctx, 0, sy, e.W, sh + 60 * u, 48 * u); ctx.fill();
+      ctx.shadowColor = 'transparent';
+      ctx.fillStyle = '#D9D2C5'; rr(ctx, e.W / 2 - 50 * u, sy + 20 * u, 100 * u, 10 * u, 5 * u); ctx.fill();
+      ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+      let ty = sy + 80 * u;
+      if (p.brand) { ctx.font = `600 ${28 * u}px "DM Mono", monospace`; ctx.fillStyle = '#8F7B6A'; ctx.fillText(ellipsize(ctx, p.brand.toUpperCase(), e.W - 140 * u), 70 * u, ty); ty += 46 * u; }
+      ctx.font = fontCss('tiktok', 50 * u); ctx.fillStyle = '#111';
+      lines.forEach((ln) => { ctx.fillText(ln, 70 * u, ty); ty += 60 * u; });
+      if (price) { ctx.font = `400 ${58 * u}px "Anton", Impact, sans-serif`; ctx.fillStyle = '#D7263D'; ctx.fillText(price, 70 * u, ty + 8 * u); ty += 70 * u; }
+      // the button gets tapped
+      const bw = e.W - 140 * u, bh = 112 * u, bx = 70 * u, bY = ty + 20 * u;
+      const tapped = L >= tap;
+      const press = tapped ? 1 - 0.05 * Math.sin(clamp((L - tap) / 0.2) * Math.PI) : 1;
+      ctx.save();
+      ctx.translate(bx + bw / 2, bY + bh / 2); ctx.scale(press, press);
+      ctx.fillStyle = tapped ? '#23874D' : '#111';
+      rr(ctx, -bw / 2, -bh / 2, bw, bh, bh / 2); ctx.fill();
+      ctx.fillStyle = '#fff'; ctx.font = fontCss('tiktok', 44 * u); ctx.textAlign = 'center';
+      const lbl = tapped ? '✓  Added to cart' : 'Add to cart';
+      ctx.fillText(lbl, tapped ? 0 : 26 * u, 2 * u);
+      if (!tapped) cartIcon(ctx, -ctx.measureText(lbl).width / 2 - 24 * u, 0, 46 * u, '#fff');
+      ctx.restore();
+      // the finger
+      const fx = bx + bw * 0.62, fy = bY + bh / 2;
+      const fk = clamp((L - (tap - 0.5)) / 0.5);
+      if (fk > 0 && L < tap + 0.45) {
+        const ex = lerp(e.W + 60 * u, fx, easeOut(fk)), ey = lerp(e.H + 60 * u, fy, easeOut(fk));
+        ctx.save();
+        ctx.globalAlpha = 1 - clamp((L - tap - 0.2) / 0.25);
+        ctx.shadowColor = 'rgba(0,0,0,0.35)'; ctx.shadowBlur = 20 * u;
+        ctx.fillStyle = 'rgba(255,255,255,0.92)';
+        ctx.beginPath(); ctx.arc(ex, ey, (tapped ? 30 : 36) * u, 0, 7); ctx.fill();
+        ctx.restore();
+      }
+      if (tapped && L - tap < 0.5) {
+        const rk = (L - tap) / 0.5;
+        ctx.strokeStyle = `rgba(35,135,77,${0.6 * (1 - rk)})`; ctx.lineWidth = 8 * u;
+        ctx.beginPath(); ctx.arc(fx, fy, 40 * u + rk * 160 * u, 0, 7); ctx.stroke();
+      }
+      ctx.restore();
+      // cart counter, top right
+      const count = i + (tapped ? 1 : 0);
+      const bump = tapped ? 1 + 0.35 * (1 - easeOut(clamp((L - tap) / 0.35))) : 1;
+      const cx = e.W - 110 * u, cy = (tall ? e.H * 0.1 : 90 * u);
+      ctx.save();
+      ctx.translate(cx, cy); ctx.scale(bump, bump);
+      ctx.shadowColor = 'rgba(0,0,0,0.3)'; ctx.shadowBlur = 20 * u;
+      ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(0, 0, 58 * u, 0, 7); ctx.fill();
+      ctx.shadowColor = 'transparent';
+      cartIcon(ctx, -2 * u, 2 * u, 60 * u, '#111');
+      if (count > 0) {
+        ctx.fillStyle = '#D7263D'; ctx.beginPath(); ctx.arc(40 * u, -40 * u, 28 * u, 0, 7); ctx.fill();
+        ctx.fillStyle = '#fff'; ctx.font = fontCss('tiktok', 30 * u); ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText(String(count), 40 * u, -38 * u);
+      }
+      ctx.restore();
+    },
+  },
 ];
 export const TEMPLATE_LIST = LIST;
 export const TEMPLATES = Object.fromEntries(LIST.map((t) => [t.id, t]));
+export const isShopTemplate = (id) => TEMPLATES[id]?.group === 'shop';
 
 export const paceOf = (proj, id = proj.template) => proj.pace?.[id] ?? TEMPLATES[id].per;
 export function timeline(proj, id = proj.template) {

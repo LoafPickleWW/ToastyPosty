@@ -1,6 +1,7 @@
 {
   "version": "0.0.1",
   "configurations": [
-    { "name": "toastpost", "runtimeExecutable": "npm", "runtimeArgs": ["start"], "port": 4848 }
+    { "name": "toastpost", "runtimeExecutable": "npm", "runtimeArgs": ["start"], "port": 4848 },
+    { "name": "toastpost-alt", "runtimeExecutable": "npm", "runtimeArgs": ["start"], "port": 4849, "env": { "PORT": "4849" } }
   ]
 }
