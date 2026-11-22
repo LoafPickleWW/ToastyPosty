@@ -1,7 +1,7 @@
 // Settings: AI keys, voice, public URL, theme, data.
 import { h, icon, pop, busy, confirmBox, modal } from '../ui.js';
 import { state, api, emit, load } from '../api.js';
-import { explorer, ALGO_READY } from '../zerosignal.js';
+import { explorer, ALGO_READY, DEFAULT_TEXT_MODEL } from '../zerosignal.js';
 
 const CLAUDE_MODELS = [
   ['claude-opus-5-5', 'Claude Opus 5.5 (best writing)'],
@@ -185,19 +185,21 @@ export default function settings(root) {
         stepsBox.replaceChildren(err ? h('div.status-box.error', err, ' ', h('button.btn.sm', { onclick: refresh }, 'Try again')) : h('p.muted', 'Reading the AI wallet’s balance…'));
         return;
       }
-      const done = [true, b.algo >= ALGO_READY, b.optedIn, b.usdc > 0];
+      // A wallet that has joined the escrow already paid its deposit, so step 2 only needs fee money free.
+      const done = [true, b.algoOk, b.optedIn, b.usdc > 0];
       const cur = done.indexOf(false);
       const st = (i) => (done[i] ? 'done' : i === cur ? 'current' : 'todo');
       const short = ai.zsAddress.slice(0, 6) + '…' + ai.zsAddress.slice(-4);
 
       stepsBox.replaceChildren(...[
-        cur === -1 ? h('div.status-box.ok', `✓ Ready. The AI wallet has ${fmt(b.usdc, 2)} USDC and ${fmt(b.algo, 3)} ALGO. Pick a model below.`) : null,
+        cur === -1 ? h('div.status-box.ok', `✓ Ready. The AI wallet has ${fmt(b.usdc, 2)} USDC.`) : null,
+        cur === -1 && b.lowAlgo ? h('div.status-box.pending', `Low on ALGO for network fees (${fmt(b.spendableAlgo, 3)} free). Send about 0.2 ALGO to the AI wallet soon so requests keep going through.`) : null,
         h('ol.zs-steps',
           step(1, 'Create your AI wallet', 'done',
             h('div.row', h('code', short), copyBtn(ai.zsAddress, 'Copy address'),
               h('a', { href: explorer(ai.zsAddress), target: '_blank', rel: 'noopener', style: { fontSize: '13px' } }, 'Explorer'))),
           step(2, 'Fund it with ALGO', st(1),
-            h('p', done[1] ? `Has ${fmt(b.algo, 3)} ALGO.` : `Send about 1 ALGO to this address from any Algorand wallet or exchange. It covers network fees, the USDC opt-in and ZeroSignal’s refundable deposit. It has ${fmt(b.algo, 3)} ALGO now; ${ALGO_READY} is the least that works.`),
+            h('p', done[1] ? `Has ${fmt(b.algo, 3)} ALGO (${fmt(b.spendableAlgo, 3)} free for fees).` : b.joined ? `Out of ALGO for network fees: ${fmt(b.spendableAlgo, 3)} free. Send about 0.2 ALGO to this address.` : `Send about 1 ALGO to this address from any Algorand wallet or exchange. It covers network fees, the USDC opt-in and ZeroSignal’s refundable deposit. It has ${fmt(b.algo, 3)} ALGO now; ${ALGO_READY} is the least that works.`),
             done[1] ? null : addressRow()),
           step(3, 'Opt in to USDC', st(2),
             done[2] ? h('p', 'Opted in. The wallet can hold USDC.') : [
@@ -232,7 +234,7 @@ export default function settings(root) {
         const key = JSON.stringify(b);
         if (key !== lastBalances) { lastBalances = key; renderSteps(b); }
         // Keep checking while a step is waiting on a transfer from outside.
-        const ready = b.algo >= ALGO_READY && b.optedIn && b.usdc > 0;
+        const ready = b.ready;
         if (!ready) timer = setTimeout(() => sec.isConnected && refresh(), 8000);
       } catch (e) { lastBalances = ''; renderSteps(null, e.message); }
     }
@@ -281,27 +283,37 @@ export default function settings(root) {
     }
 
     // ---------- models the network routes to right now ----------
-    function renderModels(list) {
+    // Starts on the default (a cheap GLM Flash that also reads images); the full list loads by itself,
+    // and picking a model saves it straight away.
+    const pick = { text: ai.zsTextModel || DEFAULT_TEXT_MODEL, vision: ai.zsTextModel ? !!ai.zsTextVision : true, image: ai.zsImageModel || '' };
+    function renderModels(list, note) {
       const price = (m) => (m.inPrice != null ? ` · $${m.inPrice.toFixed(2)} in / $${(m.outPrice ?? 0).toFixed(2)} out per 1M` : '');
-      const opt = (m, sel) => h('option', { value: m.id, selected: m.id === sel }, m.id + (m.vision ? ' · sees images' : '') + price(m));
-      const textList = list ? list.filter((m) => m.text) : (ai.zsTextModel ? [{ id: ai.zsTextModel, vision: ai.zsTextVision }] : []);
-      const imgList = list ? list.filter((m) => m.image) : (ai.zsImageModel ? [{ id: ai.zsImageModel }] : []);
-      const tSel = h('select', h('option', { value: '' }, list || textList.length ? 'Pick a model…' : 'Load models first'), textList.map((m) => opt(m, ai.zsTextModel)));
-      const iSel = h('select', h('option', { value: '' }, 'None'), imgList.map((m) => opt(m, ai.zsImageModel)));
+      const label = (m) => m.id + (m.id === DEFAULT_TEXT_MODEL ? ' (default)' : '') + (m.vision ? ' · sees images' : '') + price(m);
+      const withCurrent = (arr, cur) => (cur && !arr.some((m) => m.id === cur.id) ? [cur, ...arr] : arr);
+      const textList = withCurrent(list ? list.filter((m) => m.text) : [], { id: pick.text, vision: pick.vision });
+      const imgList = withCurrent(list ? list.filter((m) => m.image) : [], pick.image ? { id: pick.image } : null);
+      const tSel = h('select', { onchange: async () => {
+        const m = textList.find((x) => x.id === tSel.value);
+        Object.assign(pick, { text: tSel.value, vision: !!m?.vision });
+        await save({ ai: { zsTextModel: pick.text, zsTextVision: pick.vision } }, `${pick.text} writes your posts now.`);
+      } }, textList.map((m) => h('option', { value: m.id, selected: m.id === pick.text }, label(m))));
+      const iSel = h('select', { onchange: async () => {
+        pick.image = iSel.value;
+        await save({ ai: { zsImageModel: pick.image } }, pick.image ? `${pick.image} makes your images now.` : 'ZeroSignal image generation is off.');
+      } }, h('option', { value: '' }, 'None'), imgList.map((m) => h('option', { value: m.id, selected: m.id === pick.image }, label(m))));
       modelBox.replaceChildren(
         h('div.two',
-          h('label.field', h('span', 'Text model'), tSel, h('small', 'Models that “see images” can also write from your photos and do alt text.')),
-          h('label.field', h('span', 'Image model'), iSel, h('small', 'Optional. Used for image generation when there’s no OpenAI key.'))),
-        h('div.row',
-          h('button.btn', { onclick: (e) => busy(e.currentTarget, async () => {
-            const r = await api('/api/zs/models', { method: 'POST' });
-            renderModels(r.models);
-            if (!r.models.length) pop('No ZeroSignal models are reachable right now. Try again in a minute.', { kind: 'err' });
-          }, 'Finding nodes…') }, 'Load models'),
-          h('button.btn.primary', { onclick: (e) => busy(e.currentTarget, async () => {
-            const t = textList.find((m) => m.id === tSel.value);
-            await save({ ai: { zsTextModel: tSel.value, zsTextVision: !!t?.vision, zsImageModel: iSel.value } }, 'ZeroSignal models saved.');
-          }, 'Saving…') }, 'Save models')));
+          h('label.field', h('span', 'Text model'), tSel, h('small', note || 'Models that “see images” can also write from your photos and do alt text.')),
+          h('label.field', h('span', 'Image model'), iSel, h('small', 'Optional. Used for image generation when there’s no OpenAI key.'))));
+    }
+    async function loadModels() {
+      renderModels(null, 'Loading the other models…');
+      try {
+        const r = await api('/api/zs/models', { method: 'POST' });
+        renderModels(r.models, r.models.length ? null : 'No other models are reachable right now.');
+      } catch (e) {
+        renderModels(null, 'Couldn’t load the other models: ' + e.message);
+      }
     }
 
     async function showPhrase(e) {
@@ -356,7 +368,7 @@ export default function settings(root) {
         } }, 'Remove AI wallet')));
     refresh();
     renderFund();
-    renderModels(null);
+    loadModels();
     return sec;
   }
 

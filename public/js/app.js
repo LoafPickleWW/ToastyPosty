@@ -1,6 +1,6 @@
 // App shell: tabs, top-bar status, router.
 import { h, icon, pop, fmtWhen } from './ui.js';
-import { state, load, subscribe, api } from './api.js';
+import { state, load, subscribe, emit, api } from './api.js';
 import * as kitchen from './local-api.js';
 import compose from './views/compose.js';
 import queue from './views/rack.js';
@@ -39,6 +39,15 @@ function route() {
   window.scrollTo({ top: 0 });
 }
 
+// Which AI writes your posts. A link to Settings, not a switch.
+function aiPill(ai) {
+  const pending = !ai && state.providers?.zsPending;
+  const [cls, text, title] = ai ? ['', { claude: 'Claude', openai: 'OpenAI', zerosignal: 'ZeroSignal' }[ai], 'AI drafting is on. Change it in Settings.']
+    : pending ? ['.pending', 'ZeroSignal · add funds', 'Your ZeroSignal AI wallet needs ALGO and USDC before it can write. Open Settings to finish setting it up.']
+    : ['.off', 'AI off', 'Add an AI key or set up ZeroSignal in Settings'];
+  return h('a.pill.ai' + cls, { href: '#/settings', title }, text);
+}
+
 function renderChrome() {
   const scheduled = state.posts.filter((p) => p.status === 'scheduled');
   const failed = state.posts.filter((p) => ['failed', 'partial'].includes(p.status)).length;
@@ -52,7 +61,7 @@ function renderChrome() {
   // replaceChildren() prints null as the text "null", so drop empty slots first.
   document.getElementById('status').replaceChildren(...[
     next ? h('a.pill.scheduled.next', { href: '#/queue', style: { textDecoration: 'none' } }, 'Next: ' + fmtWhen(next.scheduledAt)) : null,
-    h('a.pill.ai' + (ai ? '' : '.off'), { href: '#/settings', title: ai ? 'AI drafting is on' : 'Add an AI key in Settings' }, ai ? ({ claude: 'Claude', openai: 'OpenAI', zerosignal: 'ZeroSignal' }[ai]) : 'AI off'),
+    aiPill(ai),
   ].filter(Boolean));
 }
 
@@ -138,6 +147,12 @@ async function boot() {
   await finishTikTok();
   route();
   runScheduler();
+  // A ZeroSignal wallet funded from elsewhere switches on without a trip to Settings.
+  if (state.providers?.zsPending) {
+    api('/api/zs/balances', { method: 'POST' }).then((r) => {
+      if (JSON.stringify(r.providers) !== JSON.stringify(state.providers)) { state.providers = r.providers; emit(); }
+    }).catch(() => {});
+  }
 }
 
 boot().catch((e) => {

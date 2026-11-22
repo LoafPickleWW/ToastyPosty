@@ -29,7 +29,7 @@ const EMPTY = () => ({
     ai: {
       anthropicKey: '', openaiKey: '', textProvider: 'auto', claudeModel: 'claude-opus-5-5', openaiTextModel: 'gpt-5', openaiImageModel: 'gpt-image-1',
       // ZeroSignal: the AI wallet's recovery phrase (secret), its address, network and chosen models.
-      zsMnemonic: '', zsAddress: '', zsTextModel: '', zsTextVision: false, zsImageModel: '',
+      zsMnemonic: '', zsAddress: '', zsTextModel: zsai.DEFAULT_TEXT_MODEL, zsTextVision: true, zsImageModel: '',
     },
   },
 });
@@ -148,8 +148,8 @@ function providers() {
   const ai = db.settings.ai;
   // ZeroSignal only counts once its AI wallet is funded (Settings checks the balance and records it).
   const zsOn = !!(ai.zsMnemonic && ai.zsFunded);
-  const zsText = zsOn && !!ai.zsTextModel;
-  const zsVision = zsText && !!ai.zsTextVision;
+  const zsText = zsOn; // the text model falls back to the default
+  const zsVision = zsText && (ai.zsTextModel ? !!ai.zsTextVision : true);
   const text = ai.textProvider === 'openai' && ai.openaiKey ? 'openai'
     : ai.textProvider === 'claude' && ai.anthropicKey ? 'claude'
     : ai.textProvider === 'zerosignal' && zsText ? 'zerosignal'
@@ -158,7 +158,9 @@ function providers() {
   const vision = text === 'zerosignal' && zsVision ? 'zerosignal'
     : ai.anthropicKey ? 'claude' : ai.openaiKey ? 'openai' : zsVision ? 'zerosignal' : null;
   const image = ai.openaiKey ? 'openai' : zsOn && ai.zsImageModel ? 'zerosignal' : null;
-  return { text, image, vision };
+  // Set up but not funded yet: the header says so instead of plain "AI off".
+  const zsPending = !!(ai.zsMnemonic && !ai.zsFunded) && !text;
+  return { text, image, vision, zsPending };
 }
 const fail = (msg) => { throw new Error(msg); };
 const find = (list, id, what) => list.find((x) => x.id === id) || fail(`${what} not found`);
@@ -350,7 +352,7 @@ async function zerosignal(action, body) {
     case 'balances': {
       needWallet();
       const b = await zsai.balances(ai);
-      const funded = b.algo >= zsai.ALGO_READY && b.optedIn && b.usdc > 0;
+      const funded = b.ready;
       if (!!ai.zsFunded !== funded) { ai.zsFunded = funded; await saveNow(); }
       return { ...b, providers: providers() };
     }

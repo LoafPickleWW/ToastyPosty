@@ -160,6 +160,8 @@ code { font: 500 0.88em var(--mono); background: var(--sunken); padding: 1px 6px
 .pill.ai { background: var(--surface); border: 1px solid var(--line); color: var(--ink); text-decoration: none; }
 .pill.ai::before { background: var(--ok); }
 .pill.ai.off::before { background: var(--ink-3); }
+.pill.ai.pending { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 40%, var(--line)); }
+.pill.ai.pending::before { background: var(--warn); }
 
 /* Platform badges: colored monograms, not logos */
 .pb { --pc: #2A1A12; display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 6px; background: var(--pc); color: #fff; font: 500 9.5px/1 var(--mono); letter-spacing: -0.04em; flex: none; }

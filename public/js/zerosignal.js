@@ -15,6 +15,8 @@ const vendor = () => (vendorP ||= import('/js/vendor/zerosignal.js').catch((e) =
 
 // Mainnet only: testnet has too few operators to relay through, so nothing routes there.
 const NETWORK = 'mainnet';
+// The text model a new setup starts on: cheap, fast, and it reads images.
+export const DEFAULT_TEXT_MODEL = 'glm-5.3-flash';
 export const explorer = (addr) => `https://explorer.perawallet.app/address/${addr}`;
 
 // ---------- the AI wallet (payer key) ----------
@@ -135,7 +137,7 @@ async function imageDataUrl(blob) {
 
 // One structured-output chat call: same contract as the server's jsonCall.
 export async function jsonCall(ai, { system, prompt, schema, image }) {
-  const model = ai.zsTextModel || fail('Pick a ZeroSignal text model in Settings.');
+  const model = ai.zsTextModel || DEFAULT_TEXT_MODEL;
   const url = image ? await imageDataUrl(image) : null;
   const content = [...(url ? [{ type: 'image_url', image_url: { url } }] : []), { type: 'text', text: prompt }];
   // Not every upstream honours json_schema, so the schema is also spelled out in the prompt.
@@ -178,7 +180,12 @@ const usdcAsset = async () => USDC_MAINNET;
 
 // ---------- onboarding: fund with ALGO -> opt in to USDC -> send USDC ----------
 const MICRO = 1e6;
-export const ALGO_READY = 0.6; // 0.1 to exist + 0.1 to hold USDC + the escrow's first deposit (~0.39) + fees
+export const ALGO_READY = 0.6; // what a new wallet should start with: 0.1 to exist + 0.1 to hold USDC + the escrow's first deposit (~0.39) + fees
+// The ZeroSignal escrow on mainnet (the SDK's preset). A wallet that has joined it has already paid its
+// deposit, which then counts toward the wallet's minimum balance, so it only needs ALGO free for fees.
+const ESCROW_APP_MAINNET = 3628061142n;
+const FEES_MIN = 10_000n; // 0.01 ALGO free above the minimum: a handful of requests' network fees
+const FEES_LOW = 50_000n; // under 0.05 ALGO free, suggest a top-up
 const OPT_IN_COST = 101_000n; // what holding USDC adds to the minimum balance, plus one fee
 
 // Balances of the AI wallet, straight from algod. Read-only.
@@ -190,15 +197,24 @@ export async function balances(ai) {
   const info = await algod.accountInformation(address).do();
   const holding = (info.assets || []).find((a) => BigInt(a.assetId) === usdcAssetId);
   const amount = BigInt(info.amount ?? 0), minBalance = BigInt(info.minBalance ?? 100_000);
+  const free = amount > minBalance ? amount - minBalance : 0n;
+  const joined = (info.appsLocalState || []).some((a) => BigInt(a.id) === ESCROW_APP_MAINNET);
+  const hasUsdc = !!holding && BigInt(holding.amount) > 0n;
+  // Enough ALGO: a wallet in the escrow needs only fee money free; a new one also has the deposit to pay.
+  const algoOk = joined ? free >= FEES_MIN : Number(amount) / MICRO >= ALGO_READY;
   return {
     address,
     network,
     algo: Number(amount) / MICRO,
-    spendableAlgo: Number(amount > minBalance ? amount - minBalance : 0n) / MICRO,
+    spendableAlgo: Number(free) / MICRO,
+    joined,
+    algoOk,
+    lowAlgo: joined && free < FEES_LOW,
     optedIn: !!holding,
     canOptIn: !holding && amount >= minBalance + OPT_IN_COST,
     usdc: holding ? Number(BigInt(holding.amount)) / MICRO : 0,
     usdcAssetId: String(usdcAssetId),
+    ready: hasUsdc && algoOk,
   };
 }
 

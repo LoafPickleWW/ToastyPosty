@@ -297,6 +297,12 @@ export default function compose(root, { arg }) {
   document.addEventListener('click', onDocClick);
   function renderAI() {
     const p = state.providers || {};
+    if (!p.text && p.zsPending) {
+      aiSec.replaceChildren(h('div.lock-note', icon('lock'),
+        h('div', h('b', { style: { color: 'var(--ink)' } }, 'Almost there. '), 'Your ZeroSignal AI wallet needs a little ALGO and USDC before it can draft, rewrite and write alt text.'),
+        h('a', { href: '#/settings' }, 'Finish setup →')));
+      return;
+    }
     if (!p.text) {
       aiSec.replaceChildren(h('div.lock-note', icon('lock'),
         h('div', h('b', { style: { color: 'var(--ink)' } }, 'AI drafting is locked. '), 'Add a Claude or OpenAI key, or set up ZeroSignal (private, pay-per-request with USDC), to draft captions for each platform, rewrite posts, write alt text and generate images. '),
