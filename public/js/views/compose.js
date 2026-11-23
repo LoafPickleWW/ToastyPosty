@@ -13,9 +13,9 @@ const graphemes = (t) => (seg ? [...seg.segment(t)].map((s) => s.segment) : [...
 const TONES = ['Punchy', 'Friendly', 'Professional', 'Playful', 'Deadpan'];
 const REWRITES = [
   ['Polish it', 'Improve it: clearer and more engaging, same meaning and roughly the same length'],
-  ['Make it shorter', 'Make it shorter'],
+  ['Shorter', 'Make it shorter'],
   ['Add a hook', 'Add a scroll-stopping hook at the start'],
-  ['Fix grammar & typos', 'Fix grammar and typos only'],
+  ['Fix typos', 'Fix grammar and typos only'],
   ['Less salesy', 'Make it less salesy'],
   ['Add hashtags', 'Add a few relevant hashtags'],
 ];
@@ -59,28 +59,32 @@ export default function compose(root, { arg }) {
   function renderAccounts() {
     const chips = state.accounts.map((a) =>
       h('label.acct-chip' + (a.status !== 'ok' ? '.warn' : ''), { title: a.status === 'error' ? `Connection problem: ${a.lastError}` : a.status === 'pending' ? 'Needs authorization' : `${platform(a.platform)?.name}` },
-        h('input', { type: 'checkbox', checked: d.targets.includes(a.id), onchange: (e) => { d.targets = e.target.checked ? [...d.targets, a.id] : d.targets.filter((x) => x !== a.id); touch(); } }),
+        h('input', { type: 'checkbox', checked: d.targets.includes(a.id), onchange: (e) => { d.targets = e.target.checked ? [...d.targets, a.id] : d.targets.filter((x) => x !== a.id); touch(); renderImprove(); } }),
         ava(a),
         h('span.nm', h('b', a.profile?.name || a.label), h('small', a.profile?.handle || platform(a.platform)?.name)),
         h('span.tick', icon('check'))));
     accts.replaceChildren(...chips, h('a.acct-chip.add', { href: '#/accounts' }, icon('plus', ''), state.accounts.length ? 'Add account' : 'Connect your first account'));
   }
 
-  // ---------- Editor: the text, its photos, and the tools under it ----------
+  // ---------- Text ----------
   const textMeta = h('span.text-meta');
+  let undoText = null; // the text before the last AI change, so it can be put back
   const text = h('textarea.compose-text', {
     value: d.text,
     placeholder: state.providers?.text ? 'What’s fresh out of the toaster? A rough idea is fine: AI can polish it.' : 'What’s fresh out of the toaster?',
     'aria-label': 'Post text',
-    oninput: (e) => { d.text = e.target.value; grow(); touch(); },
+    oninput: (e) => { d.text = e.target.value; if (undoText !== null) { undoText = null; renderImprove(); } grow(); touch(); },
   });
-  const grow = () => { text.style.height = 'auto'; text.style.height = Math.max(130, text.scrollHeight + 2) + 'px'; };
+  const grow = () => { text.style.height = 'auto'; text.style.height = Math.max(140, text.scrollHeight + 2) + 'px'; };
   requestAnimationFrame(grow);
   const updateMeta = () => { const n = graphemes(d.text).length; textMeta.textContent = n ? `${n} characters` : ''; };
+  const setText = (t) => { undoText = d.text; d.text = t; text.value = t; grow(); touch(); renderImprove(); };
 
   // ---------- Media ----------
   const fileInput = h('input', { type: 'file', accept: 'image/*,video/*', multiple: true, hidden: true, onchange: (e) => addFiles(e.target.files) });
-  const mediaRow = h('div.media-row');
+  const mediaRow = h('div.media-grid');
+  const imgPanel = h('div.img-panel', { hidden: true });
+  let imgShape = '1024x1024';
   function renderMedia() {
     const thumbs = d.mediaIds.map((mid) => {
       const m = media(mid);
@@ -91,11 +95,32 @@ export default function compose(root, { arg }) {
         vid ? h('span.alt', 'Video') : h('button.alt' + (m.alt ? '.has' : ''), { onclick: () => altModal(m), title: 'Describe this image for screen readers' }, m.alt ? 'ALT ✓' : '+ ALT'),
         h('button.rm', { 'aria-label': 'Remove', onclick: () => { d.mediaIds = d.mediaIds.filter((x) => x !== mid); renderMedia(); touch(); } }, '×'));
     });
-    if (!thumbs.length) return mediaRow.replaceChildren();
-    const hasImg = d.mediaIds.some((mid) => media(mid)?.mime.startsWith('image/'));
+    const p = state.providers || {};
+    const aiTile = p.image
+      ? h('button.tile.ai' + (imgPanel.hidden ? '' : '.on'), { type: 'button', 'aria-expanded': String(!imgPanel.hidden), onclick: () => { imgPanel.hidden = !imgPanel.hidden; renderMedia(); if (!imgPanel.hidden) imgPanel.querySelector('textarea')?.focus(); } },
+        icon('sparkle'), h('b', 'Create with AI'), h('small', 'Describe an image'))
+      : h('a.tile.locked', { href: '#/settings', title: p.text ? 'Image generation needs an OpenAI key or a ZeroSignal image model' : 'Connect an AI in Settings' },
+        icon('lock'), h('b', 'Create with AI'), h('small', p.text ? 'Needs an image model' : 'Set up in Settings'));
     mediaRow.replaceChildren(...thumbs,
-      h('button.dropzone', { type: 'button', onclick: () => fileInput.click() }, h('span', icon('plus'), 'Add more')),
-      hasImg ? h('a.dropzone.vid-link', { href: '#/studio/post', title: 'Turn your photos into a TikTok / Reels video' }, h('span', icon('film'), 'Make a video')) : null);
+      h('button.tile', { type: 'button', onclick: () => fileInput.click() }, icon('image'), h('b', thumbs.length ? 'Add more' : 'Upload'), h('small', 'or drop / paste')),
+      aiTile);
+    renderImgPanel();
+  }
+  function renderImgPanel() {
+    if (imgPanel.hidden || imgPanel.childNodes.length) return;
+    const prompt = h('textarea.input', { rows: 2, placeholder: 'e.g. A stack of golden sourdough slices on a wooden board, morning light', 'aria-label': 'Describe the image to create',
+      onkeydown: (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); go.click(); } } });
+    const shapes = h('div.seg', { role: 'group', 'aria-label': 'Image shape' },
+      [['1024x1024', 'Square'], ['1024x1536', 'Portrait'], ['1536x1024', 'Landscape']].map(([v, l]) =>
+        h('button', { type: 'button', 'aria-pressed': String(imgShape === v), onclick: (e) => { imgShape = v; shapes.querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', String(b === e.currentTarget))); } }, l)));
+    const go = h('button.btn.sm.butter', { type: 'button', onclick: (e) => busy(e.currentTarget, async () => { if (await generate(prompt.value, imgShape)) prompt.value = ''; }, 'Creating…') }, icon('sparkle'), 'Create image');
+    imgPanel.replaceChildren(
+      prompt,
+      h('div.img-panel-row',
+        shapes,
+        h('button.btn.sm.quiet', { type: 'button', title: 'Fill the description from your post text', onclick: () => { if (!d.text.trim()) return pop('Write your post first.', { kind: 'err' }); prompt.value = `An eye-catching photo to go with this post, with no words in the image: ${d.text.slice(0, 500)}`; prompt.focus(); } }, 'Use my post'),
+        h('span.grow'),
+        go));
   }
   async function addFiles(files) {
     for (const f of files) {
@@ -186,11 +211,19 @@ export default function compose(root, { arg }) {
     const sh = d.shop;
     const touchShop = () => { saveLocal(d); renderPreviews(); };
     const settingsTip = !state.settings?.amazonTag || !state.settings?.shopUrl;
-    if (!shopFold.open) {
-      shopSec.replaceChildren(h('button.btn.sm', { type: 'button', onclick: () => { shopFold.open = true; if (!sh.products.length) sh.products.push({ name: '', brand: '', price: '', url: '' }); renderShop(); } }, icon('tag'), 'Add product links'),
-        h('span.muted.shop-sub', 'Affiliate links from LTK, ShopMy, Amazon or any store.'));
-      return;
-    }
+    const filled = sh.products.filter((p) => p.url || p.name).length;
+    const head = h('label.sec-toggle',
+      h('span.st-text', h('b', icon('tag'), 'Shop this post'), h('small', filled ? `${filled} product${filled === 1 ? '' : 's'} linked` : 'Add affiliate links from LTK, ShopMy, Amazon or any store')),
+      h('input.switch', { type: 'checkbox', role: 'switch', checked: shopFold.open, 'aria-label': 'Shop this post',
+        onchange: (e) => {
+          if (e.target.checked) { shopFold.open = true; if (!sh.products.length) sh.products.push({ name: '', brand: '', price: '', url: '' }); }
+          else {
+            if (filled && !window.confirm(`Remove the ${filled} product link${filled === 1 ? '' : 's'} from this post?`)) { e.target.checked = true; return; }
+            shopFold.open = false; sh.products = [];
+          }
+          renderShop(); touchShop();
+        } }));
+    if (!shopFold.open) { shopSec.replaceChildren(head); return; }
     const rows = sh.products.map((p, i) => {
       const net = networkOf(p.url);
       const amazon = isAmazon(p.url);
@@ -238,6 +271,7 @@ export default function compose(root, { arg }) {
     const recent = recentProducts();
     const kw = h('input.input.kw', { value: sh.keyword, maxlength: 20, 'aria-label': 'Comment keyword', oninput: (e) => { sh.keyword = e.target.value.replace(/\s+/g, '').toUpperCase(); e.target.value = sh.keyword; touchShop(); } });
     shopSec.replaceChildren(
+      head,
       h('div.prods', rows),
       h('div.row.shop-add',
         h('button.btn.sm', { type: 'button', onclick: () => { sh.products.push({ name: '', brand: '', price: '', url: '' }); renderShop(); shopSec.querySelector('.prod:last-child input')?.focus(); } }, icon('plus'), 'Add product'),
@@ -295,63 +329,61 @@ export default function compose(root, { arg }) {
     pop('Drafted a post for each platform. Tweak any of them in the previews.', { title: 'Drafted' });
   }
 
-  // ---------- Toolbar under the text: add media + AI tools ----------
-  const tools = h('div.editor-bar');
-  const imgPanel = h('div.img-panel', { hidden: true });
-  const aiHint = h('div');
-  let closeMenu = () => {};
+  // ---------- Improve with AI: one button under the text opens the tray with every text tool ----------
+  const improveBar = h('div.editor-foot');
+  const aiTray = h('div.ai-tray', { hidden: true });
   let closeDial = () => {};
-  const onDocClick = (e) => { closeMenu(e); closeDial(e); };
+  const onDocClick = (e) => closeDial(e);
   document.addEventListener('click', onDocClick);
-  function renderTools() {
+  const targetPlats = () => [...new Set(d.targets.map((t) => account(t)?.platform).filter(Boolean))];
+
+  function renderImprove() {
     const p = state.providers || {};
-    const ai = !!p.text;
-    const lockTip = p.zsPending ? 'Finish setting up ZeroSignal in Settings' : 'Connect an AI in Settings to use this';
-    const locked = (ico, label, tip = lockTip) => h('a.btn.sm.locked', { href: '#/settings', title: tip }, icon('lock'), label);
-
-    // Improve ▾ : pick a tone, then what to do to the text.
-    let improve;
-    if (ai) {
-      const toneRow = h('div.tones', TONES.map((t) => h('button', { type: 'button', 'aria-pressed': String(t === tone), onclick: (e) => { e.stopPropagation(); tone = t; toneRow.querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', String(b === e.currentTarget))); } }, t)));
-      const menuList = h('div.menu-list', { hidden: true, role: 'menu' },
-        h('div.menu-k', 'Tone'), toneRow,
-        h('div.menu-k', 'Improve the text'),
-        REWRITES.map(([label, instr]) => h('button', { type: 'button', role: 'menuitem', onclick: () => { menuList.hidden = true; busy(improveBtn, () => rewrite(instr), 'Improving…'); } }, label)));
-      const improveBtn = h('button.btn.sm.ai', { type: 'button', 'aria-haspopup': 'menu', title: 'Rewrite your text with AI', onclick: () => { if (!d.text.trim()) { text.focus(); return pop('Write something first, even a rough idea.', { kind: 'err' }); } menuList.hidden = !menuList.hidden; } }, icon('wand'), 'Improve', icon('chevron', 'chev'));
-      closeMenu = (e) => { if (!improveBtn.parentElement?.contains(e.target)) menuList.hidden = true; };
-      improve = h('div.menu', improveBtn, menuList);
-    } else improve = locked('wand', 'Improve');
-
-    const draftBtn = ai
-      ? h('button.btn.sm.ai', { type: 'button', title: 'Write a version tailored to each platform you picked', onclick: (e) => busy(e.currentTarget, draftAll, 'Writing…') }, icon('sparkle'), 'Tailor per platform')
-      : locked('sparkle', 'Tailor per platform');
-
-    const imgBtn = p.image
-      ? h('button.btn.sm.ai', { type: 'button', 'aria-expanded': String(!imgPanel.hidden), onclick: () => { imgPanel.hidden = !imgPanel.hidden; renderTools(); if (!imgPanel.hidden) imgPanel.querySelector('input')?.focus(); } }, icon('image'), 'Create image')
-      : locked('image', 'Create image', ai ? 'Image generation needs an OpenAI key or a ZeroSignal image model (Settings)' : lockTip);
-
-    tools.replaceChildren(
-      h('button.btn.sm.quiet', { type: 'button', title: 'Add a photo or video (you can also paste or drag one in)', onclick: () => fileInput.click() }, icon('plus'), 'Photo / video'),
-      h('span.bar-div', { 'aria-hidden': 'true' }),
-      improve, draftBtn, imgBtn);
-
-    // Image prompt, shown under the text when "Create image" is open.
-    if (p.image && !imgPanel.childNodes.length) {
-      const prompt = h('input.input', { placeholder: 'Describe it, or leave blank to illustrate your post', 'aria-label': 'Image prompt',
-        onkeydown: (e) => { if (e.key === 'Enter') { e.preventDefault(); go.click(); } } });
-      const size = h('select.input', { 'aria-label': 'Image shape' }, h('option', { value: '1024x1024' }, 'Square'), h('option', { value: '1024x1536' }, 'Portrait'), h('option', { value: '1536x1024' }, 'Landscape'));
-      const go = h('button.btn.sm.butter', { type: 'button', onclick: (e) => busy(e.currentTarget, async () => { await generate(prompt.value, size.value); prompt.value = ''; }, 'Creating…') }, icon('sparkle'), 'Create');
-      imgPanel.replaceChildren(prompt, size, go,
-        h('button.btn.quiet.icon', { type: 'button', 'aria-label': 'Close', onclick: () => { imgPanel.hidden = true; renderTools(); } }, h('span', { style: { fontSize: '20px', lineHeight: 1 } }, '×')));
+    const undo = undoText !== null
+      ? h('button.btn.sm.quiet', { type: 'button', title: 'Put back the text from before the AI changed it', onclick: () => { const t = undoText; undoText = null; d.text = t; text.value = t; grow(); touch(); renderImprove(); } }, icon('undo'), 'Undo')
+      : null;
+    if (!p.text) {
+      aiTray.hidden = true;
+      improveBar.replaceChildren(
+        h('a.btn.sm.ai-btn.locked', { href: '#/settings', title: p.zsPending ? 'Your ZeroSignal wallet needs a little ALGO and USDC first' : 'Connect Claude, OpenAI or ZeroSignal in Settings to polish posts, tailor them per platform and create images' }, icon('lock'), 'Improve with AI'),
+        h('a.ai-setup', { href: '#/settings' }, p.zsPending ? 'Finish AI setup →' : 'Set up AI →'),
+        h('span.grow'), textMeta);
+      return;
     }
+    improveBar.replaceChildren(
+      h('button.btn.sm.ai-btn' + (aiTray.hidden ? '' : '.on'), { type: 'button', 'aria-expanded': String(!aiTray.hidden), onclick: () => { aiTray.hidden = !aiTray.hidden; renderImprove(); } },
+        icon('sparkle'), 'Improve with AI', icon('chevron', 'chev')),
+      ...(undo ? [undo] : []), h('span.grow'), textMeta);
+    if (aiTray.hidden) return;
 
-    aiHint.className = ai ? '' : 'ai-hint';
-    aiHint.replaceChildren(...(ai ? [] : p.zsPending
-      ? [icon('sparkle'), h('span', 'Almost there: your ZeroSignal wallet needs a little ALGO and USDC before the AI tools work.'), h('a', { href: '#/settings' }, 'Finish setup →')]
-      : [icon('sparkle'), h('span', 'Connect Claude, OpenAI or ZeroSignal to polish posts, tailor them per platform and create images.'), h('a', { href: '#/settings' }, 'Set up AI →')]));
+    // Everything in the tray runs one AI request at a time.
+    const run = (btn, fn, label) => {
+      if (aiTray.classList.contains('working')) return;
+      aiTray.classList.add('working');
+      return busy(btn, fn, label).finally(() => aiTray.classList.remove('working'));
+    };
+    const toneRow = h('div.chips', { role: 'group', 'aria-label': 'Tone' }, TONES.map((t) =>
+      h('button.chip', { type: 'button', 'aria-pressed': String(t === tone), onclick: (e) => { tone = t; toneRow.querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', String(b === e.currentTarget))); } }, t)));
+    const fixes = h('div.chips', REWRITES.map(([label, instr]) =>
+      h('button.chip.act', { type: 'button', onclick: (e) => run(e.currentTarget, () => rewrite(instr), label) }, label)));
+    const ask = h('input.input', { placeholder: 'Or tell it what to change…', 'aria-label': 'Tell the AI what to change',
+      onkeydown: (e) => { if (e.key === 'Enter') { e.preventDefault(); askBtn.click(); } } });
+    const askBtn = h('button.btn.sm', { type: 'button', onclick: (e) => { if (!ask.value.trim()) return ask.focus(); run(e.currentTarget, async () => { if (await rewrite(ask.value.trim())) ask.value = ''; }, 'Working…'); } }, 'Apply');
+    const plats = targetPlats();
+    const names = plats.map((x) => platform(x)?.name.split(' ')[0]).join(', ');
+    aiTray.replaceChildren(
+      h('div.tray-row', h('span.tray-k', 'Tone'), toneRow),
+      h('div.tray-row', h('span.tray-k', 'Rewrite'), fixes),
+      h('div.tray-row', h('span.tray-k', ''), h('div.tray-ask', ask, askBtn)),
+      h('div.tray-tailor',
+        h('div', h('b', 'Tailor it for each platform'),
+          h('small', plats.length ? `Writes a separate version for ${names}, sized and styled for each. You’ll see them in the previews.` : 'Pick where you’re posting (top of the page) and the AI writes a version for each one.')),
+        h('button.btn.sm.butter', { type: 'button', disabled: !plats.length, onclick: (e) => run(e.currentTarget, draftAll, 'Writing…') }, icon('sparkle'), plats.length > 1 ? `Write ${plats.length} versions` : 'Write it')));
   }
+
   async function draftAll() {
-    const plats = [...new Set(d.targets.map((t) => account(t)?.platform).filter(Boolean))];
+    const plats = targetPlats();
+    if (!plats.length) return pop('Pick at least one account at the top so the AI knows which platforms to write for.', { kind: 'err', title: 'Where’s it going?' });
     const img = d.mediaIds.map(media).find((m) => m?.mime.startsWith('image/'));
     if (!d.text.trim() && !img && !d.shop.products.some((p) => p.name)) return pop('Jot a few notes (or add a photo) and the AI will write the posts.', { kind: 'err', title: 'Nothing to work with' });
     const prods = d.shop.products.filter((p) => p.name || p.brand);
@@ -360,30 +392,31 @@ export default function compose(root, { arg }) {
 
 This post sells these products through my affiliate links: ${prods.map((p) => [p.name, p.brand && 'by ' + p.brand].filter(Boolean).join(' ')).join('; ')}. Open with a scroll-stopping hook about the look or the problem they solve, say why I like them in my own words, and keep it genuine. Do not include links, prices, a link-in-bio line or #ad: those are added automatically.`
       : d.text;
-    const r = await api('/api/ai/caption', { method: 'POST', body: { notes, platforms: plats.length ? plats : ['x', 'bluesky', 'instagram'], tone, mediaId: img?.id } });
-    d.text = r.base;
-    text.value = r.base; grow();
-    for (const [p, txt] of Object.entries(r.platforms || {})) d.overrides[p] = { ...(d.overrides[p] || {}), text: txt };
+    const r = await api('/api/ai/caption', { method: 'POST', body: { notes, platforms: plats, tone, mediaId: img?.id } });
+    const versions = Object.entries(r?.platforms || {}).filter(([p, t]) => plats.includes(p) && typeof t === 'string' && t.trim());
+    if (!versions.length && !(typeof r?.base === 'string' && r.base.trim())) throw new Error('The AI sent back an empty answer. Try again.');
+    for (const [p, txt] of versions) d.overrides[p] = { ...(d.overrides[p] || {}), text: txt };
     if (r.reddit_title && plats.includes('reddit')) d.overrides.reddit = { ...(d.overrides.reddit || {}), title: r.reddit_title };
-    touch();
-    pop(`Wrote ${Object.keys(r.platforms || {}).length} versions. Tweak any of them in the previews.`, { title: 'Drafted' });
+    if (typeof r.base === 'string' && r.base.trim()) setText(r.base); else touch();
+    previews.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    pop(`Wrote ${versions.length} version${versions.length === 1 ? '' : 's'}. Each preview now has its own text you can edit, or switch back to the main text.`, { title: 'Drafted' });
   }
   async function rewrite(instruction) {
-    if (!d.text.trim()) return pop('Write something first.', { kind: 'err' });
+    if (!d.text.trim()) { text.focus(); pop('Write something first, even a rough idea.', { kind: 'err' }); return false; }
     const r = await api('/api/ai/rewrite', { method: 'POST', body: { text: d.text, instruction: `${instruction}. Tone: ${tone}.` } });
-    d.text = r.text;
-    text.value = r.text; grow();
-    touch();
+    if (typeof r?.text !== 'string' || !r.text.trim()) throw new Error('The AI sent back an empty answer. Try again.');
+    setText(r.text);
+    return true;
   }
   async function generate(p, sz) {
-    if (!p.trim() && d.text.trim()) p = `An eye-catching social media image to go with this post (no text in the image): ${d.text.slice(0, 600)}`;
-    if (!p.trim()) return pop('Describe the image, or write your post first and it’ll be illustrated.', { kind: 'err' });
+    if (!p.trim()) { pop('Describe the image you want, or tap “Use my post”.', { kind: 'err' }); return false; }
     const m = await api('/api/ai/image', { method: 'POST', body: { prompt: p, size: sz } });
     state.media.push(m);
     d.mediaIds.push(m.id);
     renderMedia();
     touch();
-    pop('Image added to your post.', { title: 'Generated' });
+    pop('Image added to your post.', { title: 'Created' });
+    return true;
   }
 
   // ---------- Previews ----------
@@ -621,13 +654,13 @@ This post sells these products through my affiliate links: ${prods.map((p) => [p
   }
 
   // ---------- Page ----------
-  // One box: text, attached media, the image prompt, then the toolbar. Drop files anywhere on it.
-  const editor = h('div.editor', {
-    onclick: (e) => { if (e.target === editor) text.focus(); },
-    ondragover: (e) => { if (e.dataTransfer?.types?.includes('Files')) { e.preventDefault(); editor.classList.add('over'); } },
-    ondragleave: (e) => { if (!editor.contains(e.relatedTarget)) editor.classList.remove('over'); },
-    ondrop: (e) => { if (!e.dataTransfer?.files?.length) return; e.preventDefault(); editor.classList.remove('over'); addFiles(e.dataTransfer.files); },
-  }, text, h('div.text-foot', textMeta), mediaRow, imgPanel, tools);
+  // Text box with "Improve with AI" under it; photos get their own section (drop files anywhere on it).
+  const editor = h('div.editor', { onclick: (e) => { if (e.target === editor) text.focus(); } }, text, improveBar, aiTray);
+  const mediaSec = h('div.composer-sec', {
+    ondragover: (e) => { if (e.dataTransfer?.types?.includes('Files')) { e.preventDefault(); mediaSec.classList.add('over'); } },
+    ondragleave: (e) => { if (!mediaSec.contains(e.relatedTarget)) mediaSec.classList.remove('over'); },
+    ondrop: (e) => { if (!e.dataTransfer?.files?.length) return; e.preventDefault(); mediaSec.classList.remove('over'); addFiles(e.dataTransfer.files); },
+  }, h('div.sec-label', h('span', 'Photos & video'), h('a', { href: '#/studio/post', title: 'Turn your photos into a TikTok / Reels video' }, 'Make a video from photos →')), mediaRow, imgPanel, fileInput);
   root.append(
     h('div.page-head',
       h('div', h('span.tagline', d.id ? 'back in the toaster' : 'fresh out of the toaster'), h('h1', d.id ? 'Edit post' : 'New post'), h('p', 'Write it once, check how each platform will show it, then pull the lever.')),
@@ -637,15 +670,16 @@ This post sells these products through my affiliate links: ${prods.map((p) => [p
         h('div.composer-sec', h('div.sec-label', h('span', 'Post to'), state.accounts.length ? h('a', { href: '#/accounts' }, 'Manage') : null), accts),
         inspoSec,
         h('div.composer-sec',
-          h('div.sec-label', h('span', 'Post'), state.providers?.text ? h('span.ai-on', icon('sparkle'), AI_NAMES[state.providers.text] || 'AI', ' connected') : null),
-          editor, fileInput, aiHint),
-        h('div.composer-sec', h('div.sec-label', h('span', 'Shop this post'), d.shop.products.length ? h('span.muted', { style: { fontSize: '12.5px' } }, d.shop.products.length + ' linked') : null), shopSec),
+          h('div.sec-label', h('span', 'Your post'), state.providers?.text ? h('span.ai-on', icon('sparkle'), AI_NAMES[state.providers.text] || 'AI', ' connected') : null),
+          editor),
+        mediaSec,
+        h('div.composer-sec', shopSec),
         dock),
       previews));
 
   renderAccounts();
   renderMedia();
-  renderTools();
+  renderImprove();
   renderInspo();
   renderShop();
   renderPreviews();

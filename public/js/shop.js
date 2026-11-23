@@ -52,7 +52,7 @@ const fmtPrice = (p) => {
 const label = (p) => [p.name?.trim(), p.brand?.trim() && `(${p.brand.trim()})`, showPrice(p) && fmtPrice(p)].filter(Boolean).join(' ');
 
 export function disclosureFor(shop, settings = {}) {
-  if (!shop?.disclose || !shop.products?.length) return '';
+  if (!shop?.disclose || !shop.products?.some((p) => p.url || p.name)) return '';
   const base = (settings.disclosure || '').trim() || '#ad I earn a commission from links in this post.';
   const amazon = shop.products.some((p) => isAmazon(p.url));
   const amz = (settings.amazonDisclosure || '').trim() || '#CommissionsEarned';
