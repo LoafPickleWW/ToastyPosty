@@ -11,7 +11,14 @@ const blank = () => ({ id: null, text: '', overrides: {}, mediaIds: [], targets:
 const seg = typeof Intl !== 'undefined' && Intl.Segmenter ? new Intl.Segmenter() : null;
 const graphemes = (t) => (seg ? [...seg.segment(t)].map((s) => s.segment) : [...t]);
 const TONES = ['Punchy', 'Friendly', 'Professional', 'Playful', 'Deadpan'];
-const REWRITES = ['Make it shorter', 'Add a hook', 'Fix grammar & typos', 'Less salesy', 'Add relevant hashtags'];
+const REWRITES = [
+  ['Polish it', 'Improve it: clearer and more engaging, same meaning and roughly the same length'],
+  ['Make it shorter', 'Make it shorter'],
+  ['Add a hook', 'Add a scroll-stopping hook at the start'],
+  ['Fix grammar & typos', 'Fix grammar and typos only'],
+  ['Less salesy', 'Make it less salesy'],
+  ['Add hashtags', 'Add a few relevant hashtags'],
+];
 
 function count(text, pid) {
   let t = text || '';
@@ -59,15 +66,17 @@ export default function compose(root, { arg }) {
     accts.replaceChildren(...chips, h('a.acct-chip.add', { href: '#/accounts' }, icon('plus', ''), state.accounts.length ? 'Add account' : 'Connect your first account'));
   }
 
-  // ---------- Text ----------
-  const textMeta = h('div.text-meta');
+  // ---------- Editor: the text, its photos, and the tools under it ----------
+  const textMeta = h('span.text-meta');
   const text = h('textarea.compose-text', {
-    value: d.text, placeholder: 'What’s fresh out of the toaster?', 'aria-label': 'Post text',
+    value: d.text,
+    placeholder: state.providers?.text ? 'What’s fresh out of the toaster? A rough idea is fine: AI can polish it.' : 'What’s fresh out of the toaster?',
+    'aria-label': 'Post text',
     oninput: (e) => { d.text = e.target.value; grow(); touch(); },
   });
-  const grow = () => { text.style.height = 'auto'; text.style.height = Math.max(160, text.scrollHeight + 2) + 'px'; };
+  const grow = () => { text.style.height = 'auto'; text.style.height = Math.max(130, text.scrollHeight + 2) + 'px'; };
   requestAnimationFrame(grow);
-  const updateMeta = () => { textMeta.textContent = `${graphemes(d.text).length} characters`; };
+  const updateMeta = () => { const n = graphemes(d.text).length; textMeta.textContent = n ? `${n} characters` : ''; };
 
   // ---------- Media ----------
   const fileInput = h('input', { type: 'file', accept: 'image/*,video/*', multiple: true, hidden: true, onchange: (e) => addFiles(e.target.files) });
@@ -82,14 +91,11 @@ export default function compose(root, { arg }) {
         vid ? h('span.alt', 'Video') : h('button.alt' + (m.alt ? '.has' : ''), { onclick: () => altModal(m), title: 'Describe this image for screen readers' }, m.alt ? 'ALT ✓' : '+ ALT'),
         h('button.rm', { 'aria-label': 'Remove', onclick: () => { d.mediaIds = d.mediaIds.filter((x) => x !== mid); renderMedia(); touch(); } }, '×'));
     });
-    const drop = h('button.dropzone', {
-      type: 'button',
-      onclick: () => fileInput.click(),
-      ondragover: (e) => { e.preventDefault(); drop.classList.add('over'); },
-      ondragleave: () => drop.classList.remove('over'),
-      ondrop: (e) => { e.preventDefault(); drop.classList.remove('over'); addFiles(e.dataTransfer.files); },
-    }, h('span', icon('image'), d.mediaIds.length ? 'Add more' : 'Add photo or video', h('small.drop-paste', 'or paste one')));
-    mediaRow.replaceChildren(...thumbs, drop);
+    if (!thumbs.length) return mediaRow.replaceChildren();
+    const hasImg = d.mediaIds.some((mid) => media(mid)?.mime.startsWith('image/'));
+    mediaRow.replaceChildren(...thumbs,
+      h('button.dropzone', { type: 'button', onclick: () => fileInput.click() }, h('span', icon('plus'), 'Add more')),
+      hasImg ? h('a.dropzone.vid-link', { href: '#/studio/post', title: 'Turn your photos into a TikTok / Reels video' }, h('span', icon('film'), 'Make a video')) : null);
   }
   async function addFiles(files) {
     for (const f of files) {
@@ -289,40 +295,60 @@ export default function compose(root, { arg }) {
     pop('Drafted a post for each platform. Tweak any of them in the previews.', { title: 'Drafted' });
   }
 
-  // ---------- AI ----------
-  const aiSec = h('div');
+  // ---------- Toolbar under the text: add media + AI tools ----------
+  const tools = h('div.editor-bar');
+  const imgPanel = h('div.img-panel', { hidden: true });
+  const aiHint = h('div');
   let closeMenu = () => {};
   let closeDial = () => {};
   const onDocClick = (e) => { closeMenu(e); closeDial(e); };
   document.addEventListener('click', onDocClick);
-  function renderAI() {
+  function renderTools() {
     const p = state.providers || {};
-    if (!p.text && p.zsPending) {
-      aiSec.replaceChildren(h('div.lock-note', icon('lock'),
-        h('div', h('b', { style: { color: 'var(--ink)' } }, 'Almost there. '), 'Your ZeroSignal AI wallet needs a little ALGO and USDC before it can draft, rewrite and write alt text.'),
-        h('a', { href: '#/settings' }, 'Finish setup →')));
-      return;
-    }
-    if (!p.text) {
-      aiSec.replaceChildren(h('div.lock-note', icon('lock'),
-        h('div', h('b', { style: { color: 'var(--ink)' } }, 'AI drafting is locked. '), 'Add a Claude or OpenAI key, or set up ZeroSignal (private, pay-per-request with USDC), to draft captions for each platform, rewrite posts, write alt text and generate images. '),
-        h('a', { href: '#/settings' }, 'Add key →')));
-      return;
-    }
-    const menuList = h('div.menu-list', { hidden: true }, REWRITES.map((r) => h('button', { onclick: (e) => { menuList.hidden = true; busy(rewriteBtn, () => rewrite(r), 'Rewriting…'); } }, r)));
-    const rewriteBtn = h('button.btn', { 'aria-haspopup': 'menu', onclick: () => (menuList.hidden = !menuList.hidden) }, icon('wand'), 'Rewrite', icon('chevron'));
-    closeMenu = (e) => { if (!rewriteBtn.parentElement?.contains(e.target)) menuList.hidden = true; };
+    const ai = !!p.text;
+    const lockTip = p.zsPending ? 'Finish setting up ZeroSignal in Settings' : 'Connect an AI in Settings to use this';
+    const locked = (ico, label, tip = lockTip) => h('a.btn.sm.locked', { href: '#/settings', title: tip }, icon('lock'), label);
 
-    const prompt = h('input.input', { placeholder: 'Describe an image to generate…', 'aria-label': 'Image prompt' });
-    const size = h('select.input', { 'aria-label': 'Image shape' }, h('option', { value: '1024x1024' }, 'Square'), h('option', { value: '1024x1536' }, 'Portrait'), h('option', { value: '1536x1024' }, 'Landscape'));
-    aiSec.replaceChildren(
-      h('div.ai-bar',
-        h('button.btn.butter', { onclick: (e) => busy(e.currentTarget, draftAll, 'Drafting…') }, icon('sparkle'), 'Draft for each platform'),
-        h('div.menu', rewriteBtn, menuList)),
-      h('div.tones', h('span', 'Tone'), TONES.map((t) => h('button', { type: 'button', 'aria-pressed': String(t === tone), onclick: (e) => { tone = t; e.currentTarget.parentElement.querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', String(b === e.currentTarget))); } }, t))),
-      p.image
-        ? h('div.img-gen', prompt, size, h('button.btn', { onclick: (e) => busy(e.currentTarget, () => generate(prompt.value, size.value), 'Generating…') }, icon('image'), 'Generate'))
-        : h('div.img-gen', h('a.btn.sm.locked', { href: '#/settings', title: 'Image generation needs an OpenAI key or a ZeroSignal image model' }, icon('lock'), 'Generate image · needs OpenAI or ZeroSignal')));
+    // Improve ▾ : pick a tone, then what to do to the text.
+    let improve;
+    if (ai) {
+      const toneRow = h('div.tones', TONES.map((t) => h('button', { type: 'button', 'aria-pressed': String(t === tone), onclick: (e) => { e.stopPropagation(); tone = t; toneRow.querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', String(b === e.currentTarget))); } }, t)));
+      const menuList = h('div.menu-list', { hidden: true, role: 'menu' },
+        h('div.menu-k', 'Tone'), toneRow,
+        h('div.menu-k', 'Improve the text'),
+        REWRITES.map(([label, instr]) => h('button', { type: 'button', role: 'menuitem', onclick: () => { menuList.hidden = true; busy(improveBtn, () => rewrite(instr), 'Improving…'); } }, label)));
+      const improveBtn = h('button.btn.sm.ai', { type: 'button', 'aria-haspopup': 'menu', title: 'Rewrite your text with AI', onclick: () => { if (!d.text.trim()) { text.focus(); return pop('Write something first, even a rough idea.', { kind: 'err' }); } menuList.hidden = !menuList.hidden; } }, icon('wand'), 'Improve', icon('chevron', 'chev'));
+      closeMenu = (e) => { if (!improveBtn.parentElement?.contains(e.target)) menuList.hidden = true; };
+      improve = h('div.menu', improveBtn, menuList);
+    } else improve = locked('wand', 'Improve');
+
+    const draftBtn = ai
+      ? h('button.btn.sm.ai', { type: 'button', title: 'Write a version tailored to each platform you picked', onclick: (e) => busy(e.currentTarget, draftAll, 'Writing…') }, icon('sparkle'), 'Tailor per platform')
+      : locked('sparkle', 'Tailor per platform');
+
+    const imgBtn = p.image
+      ? h('button.btn.sm.ai', { type: 'button', 'aria-expanded': String(!imgPanel.hidden), onclick: () => { imgPanel.hidden = !imgPanel.hidden; renderTools(); if (!imgPanel.hidden) imgPanel.querySelector('input')?.focus(); } }, icon('image'), 'Create image')
+      : locked('image', 'Create image', ai ? 'Image generation needs an OpenAI key or a ZeroSignal image model (Settings)' : lockTip);
+
+    tools.replaceChildren(
+      h('button.btn.sm.quiet', { type: 'button', title: 'Add a photo or video (you can also paste or drag one in)', onclick: () => fileInput.click() }, icon('plus'), 'Photo / video'),
+      h('span.bar-div', { 'aria-hidden': 'true' }),
+      improve, draftBtn, imgBtn);
+
+    // Image prompt, shown under the text when "Create image" is open.
+    if (p.image && !imgPanel.childNodes.length) {
+      const prompt = h('input.input', { placeholder: 'Describe it, or leave blank to illustrate your post', 'aria-label': 'Image prompt',
+        onkeydown: (e) => { if (e.key === 'Enter') { e.preventDefault(); go.click(); } } });
+      const size = h('select.input', { 'aria-label': 'Image shape' }, h('option', { value: '1024x1024' }, 'Square'), h('option', { value: '1024x1536' }, 'Portrait'), h('option', { value: '1536x1024' }, 'Landscape'));
+      const go = h('button.btn.sm.butter', { type: 'button', onclick: (e) => busy(e.currentTarget, async () => { await generate(prompt.value, size.value); prompt.value = ''; }, 'Creating…') }, icon('sparkle'), 'Create');
+      imgPanel.replaceChildren(prompt, size, go,
+        h('button.btn.quiet.icon', { type: 'button', 'aria-label': 'Close', onclick: () => { imgPanel.hidden = true; renderTools(); } }, h('span', { style: { fontSize: '20px', lineHeight: 1 } }, '×')));
+    }
+
+    aiHint.className = ai ? '' : 'ai-hint';
+    aiHint.replaceChildren(...(ai ? [] : p.zsPending
+      ? [icon('sparkle'), h('span', 'Almost there: your ZeroSignal wallet needs a little ALGO and USDC before the AI tools work.'), h('a', { href: '#/settings' }, 'Finish setup →')]
+      : [icon('sparkle'), h('span', 'Connect Claude, OpenAI or ZeroSignal to polish posts, tailor them per platform and create images.'), h('a', { href: '#/settings' }, 'Set up AI →')]));
   }
   async function draftAll() {
     const plats = [...new Set(d.targets.map((t) => account(t)?.platform).filter(Boolean))];
@@ -350,7 +376,8 @@ This post sells these products through my affiliate links: ${prods.map((p) => [p
     touch();
   }
   async function generate(p, sz) {
-    if (!p.trim()) return pop('Describe the image first.', { kind: 'err' });
+    if (!p.trim() && d.text.trim()) p = `An eye-catching social media image to go with this post (no text in the image): ${d.text.slice(0, 600)}`;
+    if (!p.trim()) return pop('Describe the image, or write your post first and it’ll be illustrated.', { kind: 'err' });
     const m = await api('/api/ai/image', { method: 'POST', body: { prompt: p, size: sz } });
     state.media.push(m);
     d.mediaIds.push(m.id);
@@ -594,6 +621,13 @@ This post sells these products through my affiliate links: ${prods.map((p) => [p
   }
 
   // ---------- Page ----------
+  // One box: text, attached media, the image prompt, then the toolbar. Drop files anywhere on it.
+  const editor = h('div.editor', {
+    onclick: (e) => { if (e.target === editor) text.focus(); },
+    ondragover: (e) => { if (e.dataTransfer?.types?.includes('Files')) { e.preventDefault(); editor.classList.add('over'); } },
+    ondragleave: (e) => { if (!editor.contains(e.relatedTarget)) editor.classList.remove('over'); },
+    ondrop: (e) => { if (!e.dataTransfer?.files?.length) return; e.preventDefault(); editor.classList.remove('over'); addFiles(e.dataTransfer.files); },
+  }, text, h('div.text-foot', textMeta), mediaRow, imgPanel, tools);
   root.append(
     h('div.page-head',
       h('div', h('span.tagline', d.id ? 'back in the toaster' : 'fresh out of the toaster'), h('h1', d.id ? 'Edit post' : 'New post'), h('p', 'Write it once, check how each platform will show it, then pull the lever.')),
@@ -602,16 +636,16 @@ This post sells these products through my affiliate links: ${prods.map((p) => [p
       h('section.card.composer',
         h('div.composer-sec', h('div.sec-label', h('span', 'Post to'), state.accounts.length ? h('a', { href: '#/accounts' }, 'Manage') : null), accts),
         inspoSec,
-        h('div.composer-sec', text, textMeta),
-        h('div.composer-sec', h('div.sec-label', h('span', 'Media'), h('a', { href: '#/studio/post', title: 'Turn your photos into a TikTok / Reels video' }, 'Make a video from photos →')), mediaRow, fileInput),
+        h('div.composer-sec',
+          h('div.sec-label', h('span', 'Post'), state.providers?.text ? h('span.ai-on', icon('sparkle'), AI_NAMES[state.providers.text] || 'AI', ' connected') : null),
+          editor, fileInput, aiHint),
         h('div.composer-sec', h('div.sec-label', h('span', 'Shop this post'), d.shop.products.length ? h('span.muted', { style: { fontSize: '12.5px' } }, d.shop.products.length + ' linked') : null), shopSec),
-        h('div.composer-sec', h('div.sec-label', h('span', 'AI assist'), state.providers?.text ? h('span.muted', { style: { fontSize: '12.5px' } }, AI_NAMES[state.providers.text]) : null), aiSec),
         dock),
       previews));
 
   renderAccounts();
   renderMedia();
-  renderAI();
+  renderTools();
   renderInspo();
   renderShop();
   renderPreviews();

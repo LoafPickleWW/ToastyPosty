@@ -226,14 +226,46 @@ code { font: 500 0.88em var(--mono); background: var(--sunken); padding: 1px 6px
 .dropzone svg { width: 22px; height: 22px; margin: 0 auto 4px; display: block; }
 .dropzone:hover, .dropzone.over { border-color: var(--jam); color: var(--jam); background: var(--jam-soft); }
 
-.ai-bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+/* One editor box: text, media, image prompt, toolbar. */
+.editor { border: 1px solid var(--line-2); border-radius: 14px; background: var(--surface); cursor: text; transition: border-color 0.15s, box-shadow 0.15s, background 0.15s; }
+.editor:focus-within { border-color: var(--ink-3); box-shadow: 0 0 0 3px var(--sunken); }
+.editor.over { border-color: var(--jam); border-style: dashed; background: var(--jam-soft); }
+.editor .compose-text { padding: 14px 16px 8px; min-height: 130px; }
+.editor .media-row { padding: 4px 16px 14px; cursor: default; }
+.editor .media-row:empty { display: none; }
+.editor .thumb, .editor .dropzone { width: 88px; height: 88px; }
+.dropzone.vid-link { text-decoration: none; }
+.img-panel { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; padding: 12px 14px; border-top: 1px dashed var(--line-2); background: var(--butter-soft); cursor: default; }
+.img-panel[hidden] { display: none; }
+.img-panel .input { flex: 1 1 220px; min-height: 36px; padding: 7px 11px; }
+.img-panel select.input { flex: 0 0 auto; width: auto; }
+.editor-bar { display: flex; align-items: center; gap: 2px; flex-wrap: wrap; padding: 6px 8px; border-top: 1px solid var(--line); background: var(--surface-2); border-radius: 0 0 13px 13px; cursor: default; }
+.editor-bar .grow { flex: 1; }
+.editor-bar .btn.sm { padding: 0 10px; gap: 6px; }
+.editor-bar .btn.locked { border-color: transparent; background: transparent; opacity: 0.75; }
+.editor-bar .btn.locked:hover { opacity: 1; background: var(--sunken); }
+.editor .text-foot { display: flex; justify-content: flex-end; min-height: 18px; padding: 0 14px 6px; }
+.editor .text-meta { margin: 0; }
+.bar-div { width: 1px; height: 20px; background: var(--line-2); margin: 0 4px; }
+.btn.ai { border-color: transparent; background: transparent; }
+.btn.ai svg { color: #C98A00; }
+:root[data-theme='burnt'] .btn.ai svg { color: var(--butter); }
+.btn.ai:hover, .btn.ai[aria-expanded='true'] { background: var(--butter-soft); border-color: transparent; }
+.btn .chev { width: 14px; height: 14px; opacity: 0.6; }
+.menu-k { padding: 8px 12px 4px; font-size: 11.5px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--ink-3); }
+.menu-list .tones { margin: 0 8px 4px; padding: 0 4px; }
+.editor-bar .menu-list { min-width: 300px; }
+.menu-list .tones button { padding: 4px 10px; font-size: 12.5px; border: 1px solid var(--line); border-radius: 999px; }
+.menu-list .tones button[aria-pressed='true'] { border-color: var(--ink); }
+.ai-hint { margin: 10px 2px 0; font-size: 13px; line-height: 1.45; color: var(--ink-3); }
+.ai-hint svg { width: 15px; height: 15px; vertical-align: -2px; margin-right: 6px; color: #C98A00; }
+.ai-hint a { color: var(--jam); font-weight: 600; text-decoration: none; white-space: nowrap; margin-left: 4px; }
+.ai-on { display: inline-flex; align-items: center; gap: 5px; font-size: 12.5px; font-weight: 600; color: var(--ink-3); }
+.ai-on svg { width: 14px; height: 14px; color: #C98A00; }
 .tones { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; align-items: center; }
 .tones > span { font-size: 12.5px; color: var(--ink-3); font-weight: 600; margin-right: 2px; }
 .tones button { padding: 5px 11px; border-radius: 999px; border: 1px solid var(--line); background: transparent; cursor: pointer; font-size: 13px; font-weight: 600; color: var(--ink-2); }
 .tones button[aria-pressed='true'] { background: var(--ink); border-color: var(--ink); color: var(--bg); }
-.img-gen { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
-.img-gen .input { flex: 1 1 200px; }
-.img-gen select.input { flex: 0 0 auto; width: auto; }
 .menu { position: relative; }
 .menu-list { position: absolute; z-index: 20; top: calc(100% + 6px); left: 0; min-width: 200px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow-lg); padding: 6px; display: grid; }
 .menu-list button { text-align: left; padding: 9px 12px; border: 0; background: none; border-radius: 8px; cursor: pointer; font-weight: 550; font-size: 14px; }
