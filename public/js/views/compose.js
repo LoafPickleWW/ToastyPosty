@@ -4,6 +4,7 @@ import { BRAND_PATHS } from '../brands.js';
 import { state, api, load, platform, account, media, mediaUrl } from '../api.js';
 import { blankShop, finalText, networkOf, networkName, isAmazon, cleanUrl, CTAS, CLICKABLE, affiliateLinksIn, fillFromLink, isCollectionLink } from '../shop.js';
 import { openCollection, OFF_NOTE } from '../collection-picker.js';
+import { partialJSON } from '../partial-json.js';
 const AI_NAMES = { claude: 'Claude', openai: 'OpenAI', zerosignal: 'ZeroSignal' };
 
 const DRAFT_KEY = 'toastyposty.draft';
@@ -101,7 +102,8 @@ export default function compose(root, { arg }) {
         icon('sparkle'), h('b', 'Create with AI'), h('small', 'Describe an image'))
       : h('a.tile.locked', { href: '#/settings', title: p.text ? 'Image generation needs an OpenAI key or a ZeroSignal image model' : 'Connect an AI in Settings' },
         icon('lock'), h('b', 'Create with AI'), h('small', p.text ? 'Needs an image model' : 'Set up in Settings'));
-    mediaRow.replaceChildren(...thumbs,
+    const pending = imgJob ? h('div.tile.pending', { role: 'status', 'aria-label': 'Creating your image' }, h('span.spin'), h('b', 'Creating…'), h('small', secs(imgJob))) : null;
+    mediaRow.replaceChildren(...thumbs, ...(pending ? [pending] : []),
       h('button.tile', { type: 'button', onclick: () => fileInput.click() }, icon('image'), h('b', thumbs.length ? 'Add more' : 'Upload'), h('small', 'or drop / paste')),
       aiTile);
     renderImgPanel();
@@ -303,7 +305,7 @@ export default function compose(root, { arg }) {
           i.snippet ? h('p', i.snippet.length > 220 ? i.snippet.slice(0, 220) + '…' : i.snippet) : null,
           h('div.row',
             canAI
-              ? h('button.btn.butter.sm', { onclick: (e) => busy(e.currentTarget, writeAbout, 'Writing…') }, icon('sparkle'), 'Write a post about this')
+              ? h('button.btn.butter.sm', { onclick: writeAbout }, icon('sparkle'), 'Write a post about this')
               : h('a.btn.sm.locked', { href: '#/settings', title: 'Add a Claude or OpenAI key, or a ZeroSignal wallet, in Settings' }, icon('lock'), 'Write a post about this'),
             h('span.muted', { style: { fontSize: '12.5px' } }, canAI ? 'Uses your house voice and keeps the link.' : 'Needs an AI key. Or write your own take below.'))),
         h('button.btn.quiet.icon', { 'aria-label': 'Dismiss', title: 'Dismiss', onclick: () => { delete d.inspiration; saveLocal(d); renderInspo(); } }, h('span', { style: { fontSize: '20px', lineHeight: 1 } }, '×'))));
@@ -320,13 +322,19 @@ export default function compose(root, { arg }) {
       i.url ? `Link: ${i.url}` : '',
       extra ? `My own notes: ${extra}` : '',
     ].filter(Boolean).join('\n');
-    const r = await api('/api/ai/caption', { method: 'POST', body: { notes, platforms: plats.length ? plats : ['x', 'bluesky', 'instagram'], tone } });
-    d.text = r.base;
-    text.value = r.base; grow();
-    for (const [p, txt] of Object.entries(r.platforms || {})) d.overrides[p] = { ...(d.overrides[p] || {}), text: txt };
-    if (r.reddit_title && plats.includes('reddit')) d.overrides.reddit = { ...(d.overrides.reddit || {}), title: r.reddit_title };
-    touch();
-    pop('Drafted a post for each platform. Tweak any of them in the previews.', { title: 'Drafted' });
+    // Without accounts picked, the post itself is still written; platform versions need targets.
+    const ok = await runJob('Reading the link…', async (j) => {
+      const r = await api('/api/ai/caption', {
+        method: 'POST', body: { notes, platforms: plats.length ? plats : ['x'], tone }, signal: j.ctrl.signal,
+        onText: feed(j, (o) => { if (typeof o.base === 'string' && o.base) { setPhase(j, 'Writing your post…'); liveText(o.base); } }),
+      });
+      if (j.cancelled) throw stopped();
+      if (typeof r?.base !== 'string' || !r.base.trim()) throw new Error('The AI sent back an empty answer. Try again.');
+      for (const [p, txt] of Object.entries(r.platforms || {})) if (plats.includes(p) && typeof txt === 'string' && txt.trim()) d.overrides[p] = { ...(d.overrides[p] || {}), text: txt };
+      if (r.reddit_title && plats.includes('reddit')) d.overrides.reddit = { ...(d.overrides.reddit || {}), title: r.reddit_title };
+      setText(r.base);
+    });
+    if (ok) pop(plats.length ? 'Drafted your post and a version for each platform. Tweak any of them in the previews.' : 'Drafted your post. Pick accounts up top to tailor it per platform.', { title: 'Drafted' });
   }
 
   // ---------- Improve with AI: one button under the text opens the tray with every text tool ----------
@@ -337,8 +345,85 @@ export default function compose(root, { arg }) {
   document.addEventListener('click', onDocClick);
   const targetPlats = () => [...new Set(d.targets.map((t) => account(t)?.platform).filter(Boolean))];
 
+  // ---------- AI jobs: one at a time, shown live in the strip under the text ----------
+  // While the AI works: what it's doing, how long it's been, Claude's thinking summary, and Stop.
+  // Text streams into the post (and the previews) as it's written; Stop or an error puts it all back.
+  let job = null;
+  const secs = (j) => `${Math.max(0, Math.round((Date.now() - j.t0) / 1000))}s`;
+  function setPhase(j, phase) { if (j.phase !== phase) { j.phase = phase; if (j.phaseEl) j.phaseEl.textContent = phase; } }
+  function setThought(j, s) {
+    // Show the latest line of the reasoning summary, trimmed to one readable line.
+    const line = s.trim().split(/\n+/).pop().replace(/^[#*\s]+|\*+$/g, '').trim();
+    if (j.thoughtEl && line) { j.thoughtEl.textContent = line.length > 140 ? '…' + line.slice(-140) : line; j.thoughtEl.hidden = false; }
+  }
+  function liveText(t) { text.value = t; grow(); text.scrollTop = text.scrollHeight; }
+  let previewQueued = false;
+  const livePreviews = () => { if (previewQueued) return; previewQueued = true; requestAnimationFrame(() => { previewQueued = false; renderPreviews(); }); };
+
+  // Feeds the streamed answer to `onParsed` (at most once a frame) and the thinking summary to the strip.
+  function feed(j, onParsed) {
+    let raw = '', thought = '', queued = false;
+    return (t, o) => {
+      if (j.cancelled) return;
+      if (o?.thinking) { thought += t; setThought(j, thought); return; }
+      if (o?.reset) raw = ''; else raw += t;
+      if (j.thoughtEl) j.thoughtEl.hidden = true;
+      if (queued) return;
+      queued = true;
+      requestAnimationFrame(() => { queued = false; if (!j.cancelled) onParsed(partialJSON(raw)); });
+    };
+  }
+  const stopped = () => Object.assign(new Error('Stopped'), { name: 'AbortError' });
+
+  async function runJob(startPhase, fn) {
+    if (job) return false;
+    const j = job = { ctrl: new AbortController(), phase: startPhase, t0: Date.now(), cancelled: false };
+    const before = { text: d.text, overrides: structuredClone(d.overrides) };
+    aiTray.hidden = true;
+    text.readOnly = true;
+    editor.classList.add('writing');
+    renderImprove();
+    j.tick = setInterval(() => { if (j.timeEl) j.timeEl.textContent = secs(j); }, 500);
+    let ok = false;
+    try {
+      await fn(j);
+      if (j.cancelled) throw stopped();
+      ok = true;
+    } catch (e) {
+      d.text = before.text; d.overrides = before.overrides;
+      text.value = d.text; grow(); renderPreviews();
+      if (j.cancelled || e?.name === 'AbortError') pop('Stopped. Your post is back the way it was.', { title: 'Stopped' });
+      else pop(e.message, { kind: 'err', title: 'Burnt' });
+    } finally {
+      clearInterval(j.tick);
+      job = null;
+      text.readOnly = false;
+      editor.classList.remove('writing');
+      renderImprove();
+    }
+    return ok;
+  }
+  function stopJob() {
+    if (!job) return;
+    job.cancelled = true;
+    job.ctrl.abort();
+    setPhase(job, 'Stopping…');
+  }
+
   function renderImprove() {
     const p = state.providers || {};
+    if (job) {
+      const j = job;
+      j.phaseEl = h('span.ai-phase', j.phase);
+      j.timeEl = h('span.ai-time', secs(j));
+      j.thoughtEl = h('div.ai-thought', { hidden: true, 'aria-live': 'polite' });
+      improveBar.replaceChildren(
+        h('div.ai-status', { role: 'status' }, h('span.ai-dots', { 'aria-hidden': 'true' }, h('i'), h('i'), h('i')), j.phaseEl, j.timeEl),
+        h('span.grow'),
+        h('button.btn.sm.quiet', { type: 'button', onclick: stopJob }, 'Stop'),
+        j.thoughtEl);
+      return;
+    }
     const undo = undoText !== null
       ? h('button.btn.sm.quiet', { type: 'button', title: 'Put back the text from before the AI changed it', onclick: () => { const t = undoText; undoText = null; d.text = t; text.value = t; grow(); touch(); renderImprove(); } }, icon('undo'), 'Undo')
       : null;
@@ -356,19 +441,13 @@ export default function compose(root, { arg }) {
       ...(undo ? [undo] : []), h('span.grow'), textMeta);
     if (aiTray.hidden) return;
 
-    // Everything in the tray runs one AI request at a time.
-    const run = (btn, fn, label) => {
-      if (aiTray.classList.contains('working')) return;
-      aiTray.classList.add('working');
-      return busy(btn, fn, label).finally(() => aiTray.classList.remove('working'));
-    };
     const toneRow = h('div.chips', { role: 'group', 'aria-label': 'Tone' }, TONES.map((t) =>
       h('button.chip', { type: 'button', 'aria-pressed': String(t === tone), onclick: (e) => { tone = t; toneRow.querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', String(b === e.currentTarget))); } }, t)));
     const fixes = h('div.chips', REWRITES.map(([label, instr]) =>
-      h('button.chip.act', { type: 'button', onclick: (e) => run(e.currentTarget, () => rewrite(instr), label) }, label)));
+      h('button.chip.act', { type: 'button', onclick: () => rewrite(instr, label) }, label)));
     const ask = h('input.input', { placeholder: 'Or tell it what to change…', 'aria-label': 'Tell the AI what to change',
       onkeydown: (e) => { if (e.key === 'Enter') { e.preventDefault(); askBtn.click(); } } });
-    const askBtn = h('button.btn.sm', { type: 'button', onclick: (e) => { if (!ask.value.trim()) return ask.focus(); run(e.currentTarget, async () => { if (await rewrite(ask.value.trim())) ask.value = ''; }, 'Working…'); } }, 'Apply');
+    const askBtn = h('button.btn.sm', { type: 'button', onclick: () => { if (!ask.value.trim()) return ask.focus(); rewrite(ask.value.trim(), 'your change'); } }, 'Apply');
     const plats = targetPlats();
     const names = plats.map((x) => platform(x)?.name.split(' ')[0]).join(', ');
     aiTray.replaceChildren(
@@ -377,8 +456,8 @@ export default function compose(root, { arg }) {
       h('div.tray-row', h('span.tray-k', ''), h('div.tray-ask', ask, askBtn)),
       h('div.tray-tailor',
         h('div', h('b', 'Tailor it for each platform'),
-          h('small', plats.length ? `Writes a separate version for ${names}, sized and styled for each. You’ll see them in the previews.` : 'Pick where you’re posting (top of the page) and the AI writes a version for each one.')),
-        h('button.btn.sm.butter', { type: 'button', disabled: !plats.length, onclick: (e) => run(e.currentTarget, draftAll, 'Writing…') }, icon('sparkle'), plats.length > 1 ? `Write ${plats.length} versions` : 'Write it')));
+          h('small', plats.length ? `Rewrites your post, then writes a version for ${names}, sized and styled for each. You’ll see them in the previews.` : 'Pick where you’re posting (top of the page) and the AI writes a version for each one.')),
+        h('button.btn.sm.butter', { type: 'button', disabled: !plats.length, onclick: draftAll }, icon('sparkle'), plats.length > 1 ? `Write ${plats.length} versions` : 'Write it')));
   }
 
   async function draftAll() {
@@ -392,31 +471,63 @@ export default function compose(root, { arg }) {
 
 This post sells these products through my affiliate links: ${prods.map((p) => [p.name, p.brand && 'by ' + p.brand].filter(Boolean).join(' ')).join('; ')}. Open with a scroll-stopping hook about the look or the problem they solve, say why I like them in my own words, and keep it genuine. Do not include links, prices, a link-in-bio line or #ad: those are added automatically.`
       : d.text;
-    const r = await api('/api/ai/caption', { method: 'POST', body: { notes, platforms: plats, tone, mediaId: img?.id } });
-    const versions = Object.entries(r?.platforms || {}).filter(([p, t]) => plats.includes(p) && typeof t === 'string' && t.trim());
-    if (!versions.length && !(typeof r?.base === 'string' && r.base.trim())) throw new Error('The AI sent back an empty answer. Try again.');
-    for (const [p, txt] of versions) d.overrides[p] = { ...(d.overrides[p] || {}), text: txt };
-    if (r.reddit_title && plats.includes('reddit')) d.overrides.reddit = { ...(d.overrides.reddit || {}), title: r.reddit_title };
-    if (typeof r.base === 'string' && r.base.trim()) setText(r.base); else touch();
+    const nameOf = (p) => platform(p)?.name.split(' ')[0] || p;
+    let versions = [];
+    const ok = await runJob(img ? 'Looking at your photo…' : 'Thinking…', async (j) => {
+      const r = await api('/api/ai/caption', {
+        method: 'POST', body: { notes, platforms: plats, tone, mediaId: img?.id }, signal: j.ctrl.signal,
+        onText: feed(j, (o) => {
+          const live = o.platforms && typeof o.platforms === 'object' ? Object.entries(o.platforms).filter(([p, t]) => plats.includes(p) && typeof t === 'string') : [];
+          if (typeof o.base === 'string' && o.base) liveText(o.base);
+          if (live.length) {
+            setPhase(j, `Writing the ${nameOf(live[live.length - 1][0])} version…`);
+            for (const [p, t] of live) d.overrides[p] = { ...(d.overrides[p] || {}), text: t };
+            livePreviews();
+          } else if (o.base) setPhase(j, 'Writing your post…');
+        }),
+      });
+      if (j.cancelled) throw stopped();
+      versions = Object.entries(r?.platforms || {}).filter(([p, t]) => plats.includes(p) && typeof t === 'string' && t.trim());
+      if (!versions.length && !(typeof r?.base === 'string' && r.base.trim())) throw new Error('The AI sent back an empty answer. Try again.');
+      for (const [p, txt] of versions) d.overrides[p] = { ...(d.overrides[p] || {}), text: txt };
+      if (r.reddit_title && plats.includes('reddit')) d.overrides.reddit = { ...(d.overrides.reddit || {}), title: r.reddit_title };
+      if (typeof r.base === 'string' && r.base.trim()) setText(r.base); else touch();
+    });
+    if (!ok) return;
     previews.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-    pop(`Wrote ${versions.length} version${versions.length === 1 ? '' : 's'}. Each preview now has its own text you can edit, or switch back to the main text.`, { title: 'Drafted' });
+    pop(`Rewrote your post and wrote ${versions.length} platform version${versions.length === 1 ? '' : 's'}. Edit any preview, or switch it back to the main text.`, { title: 'Drafted' });
   }
-  async function rewrite(instruction) {
+  async function rewrite(instruction, label = 'your post') {
     if (!d.text.trim()) { text.focus(); pop('Write something first, even a rough idea.', { kind: 'err' }); return false; }
-    const r = await api('/api/ai/rewrite', { method: 'POST', body: { text: d.text, instruction: `${instruction}. Tone: ${tone}.` } });
-    if (typeof r?.text !== 'string' || !r.text.trim()) throw new Error('The AI sent back an empty answer. Try again.');
-    setText(r.text);
-    return true;
+    return runJob('Thinking…', async (j) => {
+      const r = await api('/api/ai/rewrite', {
+        method: 'POST', body: { text: d.text, instruction: `${instruction}. Tone: ${tone}.` }, signal: j.ctrl.signal,
+        onText: feed(j, (o) => { if (typeof o.text === 'string' && o.text) { setPhase(j, `Rewriting: ${label}…`); liveText(o.text); } }),
+      });
+      if (j.cancelled) throw stopped();
+      if (typeof r?.text !== 'string' || !r.text.trim()) throw new Error('The AI sent back an empty answer. Try again.');
+      setText(r.text);
+    });
   }
+  // Image generation can't stream, so a placeholder tile counts the seconds while it works.
+  let imgJob = null;
   async function generate(p, sz) {
     if (!p.trim()) { pop('Describe the image you want, or tap “Use my post”.', { kind: 'err' }); return false; }
-    const m = await api('/api/ai/image', { method: 'POST', body: { prompt: p, size: sz } });
-    state.media.push(m);
-    d.mediaIds.push(m.id);
+    imgJob = { t0: Date.now(), shape: sz };
     renderMedia();
-    touch();
-    pop('Image added to your post.', { title: 'Created' });
-    return true;
+    const tick = setInterval(() => { const el = mediaRow.querySelector('.tile.pending small'); if (el && imgJob) el.textContent = secs(imgJob); }, 500);
+    try {
+      const m = await api('/api/ai/image', { method: 'POST', body: { prompt: p, size: sz } });
+      state.media.push(m);
+      d.mediaIds.push(m.id);
+      touch();
+      pop('Image added to your post.', { title: 'Created' });
+      return true;
+    } finally {
+      clearInterval(tick);
+      imgJob = null;
+      renderMedia();
+    }
   }
 
   // ---------- Previews ----------

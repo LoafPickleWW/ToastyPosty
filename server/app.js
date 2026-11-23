@@ -123,16 +123,38 @@ app.post('/api/unfurl/image', wrap(async (req, res) => {
 app.post('/api/web/items', wrap(async (req, res) => res.json(await rss.webItems(req.body.feed))));
 
 // ---------- AI ----------
+// With `stream: true` the answer comes back as it's written, one JSON object per line:
+// {"t": "..."} answer text, {"k": "..."} reasoning summary, {"reset": true} start over,
+// then {"done": result} or {"error": "..."}.
+async function answer(res, stream, run) {
+  if (!stream) return res.json(await run(undefined));
+  res.status(200);
+  res.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8');
+  res.setHeader('Cache-Control', 'no-cache, no-transform');
+  res.setHeader('X-Accel-Buffering', 'no');
+  res.flushHeaders();
+  let closed = false;
+  res.on('close', () => { closed = true; });
+  const line = (o) => { if (!closed) res.write(JSON.stringify(o) + '\n'); };
+  try {
+    const done = await run((t, o) => line(o?.reset ? { reset: true } : o?.thinking ? { k: t } : { t }));
+    line({ done });
+  } catch (e) {
+    console.error('[toasty] ai stream', e.message);
+    line({ error: e.message });
+  }
+  res.end();
+}
 app.post('/api/ai/caption', wrap(async (req, res) => {
-  const { settings, notes, platforms: plats, tone } = req.body;
-  res.json(await ai.draftCaptions(settings, { notes: notes || '', platforms: plats || [], tone }));
+  const { settings, notes, platforms: plats, tone, stream } = req.body;
+  await answer(res, stream, (onText) => ai.draftCaptions(settings, { notes: notes || '', platforms: plats || [], tone }, onText));
 }));
 app.post('/api/ai/caption-image', upload.single('image'), wrap(async (req, res) => {
   const p = JSON.parse(req.body.payload || '{}');
   const image = req.file ? { data: req.file.buffer, mime: req.file.mimetype, size: req.file.size } : null;
-  res.json(await ai.draftCaptions(p.settings, { notes: p.notes || '', platforms: p.platforms || [], tone: p.tone, image }));
+  await answer(res, p.stream, (onText) => ai.draftCaptions(p.settings, { notes: p.notes || '', platforms: p.platforms || [], tone: p.tone, image }, onText));
 }));
-app.post('/api/ai/rewrite', wrap(async (req, res) => res.json(await ai.rewrite(req.body.settings, req.body))));
+app.post('/api/ai/rewrite', wrap(async (req, res) => answer(res, req.body.stream, (onText) => ai.rewrite(req.body.settings, req.body, onText))));
 app.post('/api/ai/alt', upload.single('image'), wrap(async (req, res) => {
   const p = JSON.parse(req.body.payload || '{}');
   if (!req.file) throw bad('Pick an image.');

@@ -40,22 +40,47 @@ const urls = new Map(); // media id -> object URL
 
 // ---------- relay ----------
 export class NeedsCode extends Error {}
-export async function net(path, { method = 'POST', body, form } = {}) {
+export async function net(path, { method = 'POST', body, form, signal, onText } = {}) {
   const headers = {};
   const code = localStorage.getItem(CODE_KEY);
   if (code) headers['x-toasty-code'] = code;
   if (body) headers['Content-Type'] = 'application/json';
   let res;
   try {
-    res = await fetch(path, { method, headers, body: form || (body ? JSON.stringify(body) : undefined) });
-  } catch {
+    res = await fetch(path, { method, headers, signal, body: form || (body ? JSON.stringify(body) : undefined) });
+  } catch (e) {
+    if (e?.name === 'AbortError') throw e;
     throw new Error('Couldn’t reach the Toasty Posty server. Check your connection.');
   }
+  // Streamed AI answers: one JSON object per line ({t}, {reset}, then {done} or {error}).
+  if (onText && res.ok && /ndjson/.test(res.headers.get('Content-Type') || '')) return readLines(res, onText);
   let data = {};
   try { data = await res.json(); } catch {}
   if (res.status === 401 && data.needsCode) throw new NeedsCode(data.error);
   if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
   return data;
+}
+async function readLines(res, onText) {
+  const reader = res.body.getReader();
+  const dec = new TextDecoder();
+  let buf = '';
+  for (;;) {
+    const { value, done } = await reader.read();
+    buf += dec.decode(value || new Uint8Array(), { stream: !done });
+    let nl;
+    while ((nl = buf.indexOf('\n')) >= 0) {
+      const raw = buf.slice(0, nl).trim();
+      buf = buf.slice(nl + 1);
+      if (!raw) continue;
+      const m = JSON.parse(raw);
+      if (m.error) throw new Error(m.error);
+      if ('done' in m) return m.done;
+      if (m.reset) onText('', { reset: true });
+      else if (m.k) onText(m.k, { thinking: true });
+      else if (m.t) onText(m.t);
+    }
+    if (done) throw new Error('The AI stopped answering partway. Try again.');
+  }
 }
 export const saveCode = (c) => localStorage.setItem(CODE_KEY, c);
 export const getConfig = () => config;
@@ -366,7 +391,7 @@ async function zerosignal(action, body) {
 }
 
 // ---------- the router the views talk to ----------
-export async function handle(path, { method = 'GET', body = {}, form } = {}) {
+export async function handle(path, { method = 'GET', body = {}, form, onText, signal } = {}) {
   const [p] = path.split('?');
   const seg = p.split('/').filter(Boolean).slice(1); // drop "api"
   const [res, id, action] = seg;
@@ -553,14 +578,14 @@ export async function handle(path, { method = 'GET', body = {}, form } = {}) {
       return addMedia(blob, { name: 'ai-toast.' + (blob.type.split('/')[1] || 'png'), width: w, height: h, extra: { ai: true, prompt: body.prompt } });
     }
     if (id === 'caption') {
-      const payload = { settings, notes: body.notes || '', platforms: body.platforms || [], tone: body.tone };
+      const payload = { settings, notes: body.notes || '', platforms: body.platforms || [], tone: body.tone, stream: !!onText };
       if (body.mediaId) {
         const { fd, hasImage } = await imageForm(body.mediaId, payload);
-        if (hasImage) return net('/api/ai/caption-image', { form: fd });
+        if (hasImage) return net('/api/ai/caption-image', { form: fd, onText, signal });
       }
-      return net('/api/ai/caption', { body: payload });
+      return net('/api/ai/caption', { body: payload, onText, signal });
     }
-    if (id === 'rewrite') return net('/api/ai/rewrite', { body: { settings, text: body.text, instruction: body.instruction } });
+    if (id === 'rewrite') return net('/api/ai/rewrite', { body: { settings, text: body.text, instruction: body.instruction, stream: !!onText }, onText, signal });
     if (id === 'alt') {
       const m = find(db.media, body.mediaId, 'Image');
       const { fd } = await imageForm(m.id, { settings });

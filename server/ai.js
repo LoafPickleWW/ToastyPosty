@@ -29,8 +29,11 @@ function friendly(err, who) {
   return new Error(`${who}: ${err?.message || err}`);
 }
 
-// One structured-output call to whichever text provider is active.
-async function jsonCall(settings, { system, prompt, schema, image }) {
+// One structured-output call to whichever text provider is active. Always streamed, so long
+// answers don't hit request timeouts; `onText(delta)` sees the JSON as it's written, and
+// `onText(summary, { thinking: true })` is Claude's reasoning summary before it writes, and
+// `onText('', { reset: true })` means start over (a fallback model took over mid-answer).
+async function jsonCall(settings, { system, prompt, schema, image }, onText = () => {}) {
   const p = providers(settings);
   const ai = settings.ai;
   if (!p.text) throw new Error('No AI key set. Add a Claude or OpenAI key in Settings.');
@@ -44,44 +47,60 @@ async function jsonCall(settings, { system, prompt, schema, image }) {
       model,
       max_tokens: 16000,
       system,
+      // A short summary of the reasoning is streamed so the app can show what it's thinking.
+      thinking: { type: 'adaptive', display: 'summarized' },
       output_config: { effort: 'low', format: { type: 'json_schema', schema } },
       messages: [{ role: 'user', content: [...(img ? [img] : []), { type: 'text', text: prompt }] }],
     };
     let res;
     try {
       // Opus/Sonnet: if a safety classifier declines, the API retries on a fallback model in the same call.
-      res = model.startsWith('claude-haiku')
-        ? await client.messages.create(params)
-        : await client.beta.messages.create({ ...params, betas: ['server-side-fallback-2026-07-01'], fallbacks: 'default' });
+      const stream = model.startsWith('claude-haiku')
+        ? client.messages.stream(params)
+        : client.beta.messages.stream({ ...params, betas: ['server-side-fallback-2026-07-01'], fallbacks: 'default' });
+      for await (const event of stream) {
+        if (event.type === 'content_block_start' && event.content_block.type === 'fallback') onText('', { reset: true });
+        else if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') onText(event.delta.text);
+        else if (event.type === 'content_block_delta' && event.delta.type === 'thinking_delta') onText(event.delta.thinking, { thinking: true });
+      }
+      res = await stream.finalMessage();
     } catch (err) {
       throw friendly(err, 'Claude');
     }
     if (res.stop_reason === 'refusal') throw new Error('Claude declined to write this one. Try rephrasing your notes.');
-    const text = res.content.filter((b) => b.type === 'text').map((b) => b.text).join('');
+    // Only the answer from the model that finished counts (after the last fallback switch, if any).
+    const lastSwitch = res.content.map((b) => b.type).lastIndexOf('fallback');
+    const text = res.content.slice(lastSwitch + 1).filter((b) => b.type === 'text').map((b) => b.text).join('');
     return JSON.parse(text);
   }
 
   const client = new OpenAI({ apiKey: ai.openaiKey });
   const img = imagePart(image, 'openai');
   try {
-    const res = await client.chat.completions.create({
+    const stream = await client.chat.completions.create({
       model: ai.openaiTextModel || 'gpt-5',
       messages: [
         { role: 'system', content: system },
         { role: 'user', content: [...(img ? [img] : []), { type: 'text', text: prompt }] },
       ],
       response_format: { type: 'json_schema', json_schema: { name: 'toast', strict: true, schema } },
+      stream: true,
     });
-    return JSON.parse(res.choices[0].message.content);
+    let text = '';
+    for await (const chunk of stream) {
+      const delta = chunk.choices?.[0]?.delta?.content || '';
+      if (delta) { text += delta; onText(delta); }
+    }
+    return JSON.parse(text);
   } catch (err) {
     throw friendly(err, 'OpenAI');
   }
 }
 
-export const draftCaptions = (settings, { notes, platforms, tone, image }) =>
-  jsonCall(settings, { ...captionRequest(settings, { notes, platforms, tone, hasImage: !!image }), image });
+export const draftCaptions = (settings, { notes, platforms, tone, image }, onText) =>
+  jsonCall(settings, { ...captionRequest(settings, { notes, platforms, tone, hasImage: !!image }), image }, onText);
 
-export const rewrite = (settings, { text, instruction }) => jsonCall(settings, rewriteRequest(settings, { text, instruction }));
+export const rewrite = (settings, { text, instruction }, onText) => jsonCall(settings, rewriteRequest(settings, { text, instruction }), onText);
 
 export const altText = (settings, { image }) => jsonCall(settings, { ...altRequest(), image });
 

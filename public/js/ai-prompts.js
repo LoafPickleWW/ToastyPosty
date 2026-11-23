@@ -25,7 +25,7 @@ export function captionRequest(settings, { notes, platforms, tone, hasImage }) {
   const schema = {
     type: 'object',
     properties: {
-      base: { type: 'string', description: 'A general-purpose version of the post' },
+      base: { type: 'string', description: 'The finished main post, polished and ready to publish anywhere' },
       platforms: { type: 'object', properties: props, required: plats, additionalProperties: false },
       reddit_title: { type: 'string' },
     },
@@ -36,7 +36,8 @@ export function captionRequest(settings, { notes, platforms, tone, hasImage }) {
     hasImage ? 'An image is attached; it is what the post is about. Describe only what is actually visible.' : '',
     notes ? `<notes>\n${notes}\n</notes>` : 'There are no notes; write from the image alone.',
     tone ? `Tone: ${tone}.` : '',
-    'Write one version per platform following these rules:',
+    'base: the finished main version of the post, written properly in the requested tone and ready to publish. Treat the notes as raw material: rewrite and polish them, do not copy them back.',
+    'Then write one version per platform following these rules:',
     ...plats.map((p) => '- ' + PLATFORM_STYLE[p]),
     'reddit_title: a plain, specific Reddit title under 300 characters (empty string if reddit is not listed).',
   ].filter(Boolean).join('\n');
